@@ -2736,7 +2736,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
 	case IDT_FILE_BROWSE:
 	case IDM_FILE_BROWSE:
-		TryBrowseFile(hwnd, szCurFile, true);
+		OpenContainingFolder(hwnd, szCurFile, true);
 		break;
 
 	case IDM_FILE_NEWWINDOW:
