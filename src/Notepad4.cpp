@@ -859,7 +859,7 @@ void InitInstance(HINSTANCE hInstance, int nCmdShow) {
 		iSrcEncoding = Encoding_Match(lpEncodingArg);
 	}
 
-	UpdateStatusBarCache(StatusItem_OvrMode);
+
 	UpdateStatusBarCache(StatusItem_Zoom);
 	bool bOpened = false;
 	bool bFileLoadCalled = false;
@@ -2156,11 +2156,6 @@ void UpdateStatusBarCache(int item) noexcept {
 		cachedStatusItem.pszEolMode = (iCurrentEOLMode == SC_EOL_LF) ? L" \\n " : ((iCurrentEOLMode == SC_EOL_CR) ? L" \\r " : L" \\r\\n ");
 		break;
 
-	case StatusItem_OvrMode: {
-		const BOOL overType = SciCall_GetOvertype();
-		cachedStatusItem.overType = overType;
-		cachedStatusItem.pszOvrMode = overType ? L"OVR" : L"INS";
-	} break;
 
 	case StatusItem_Zoom:
 		wsprintf(cachedStatusItem.tchZoom, L"%i%%", iZoomLevel);
@@ -4687,7 +4682,6 @@ LRESULT MsgNotify(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 					cachedStatusItem.updateMask |= (1 << StatusItem_Character) | (1 << StatusItem_Column)
 						| (1 << StatusItem_Selection) | (1 << StatusItem_SelectedLine);
 					if (overType != cachedStatusItem.overType) {
-						cachedStatusItem.updateMask |= (1 << StatusItem_OvrMode);
 						cachedStatusItem.overType = overType;
 						cachedStatusItem.pszOvrMode = overType ? L"OVR" : L"INS";
 					}
@@ -5069,9 +5063,6 @@ LRESULT MsgNotify(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 				SendWMCommand(hwnd, (pLexCurrent->iLexer == SCLEX_CSV) ? IDM_LEXER_CSV : IDM_VIEW_SCHEME);
 				return TRUE;
 
-			case StatusItem_OvrMode:
-				SciCall_EditToggleOvertype();
-				return TRUE;
 
 			default:
 				return FALSE;
