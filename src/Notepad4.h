@@ -110,7 +110,7 @@ enum {
 	StatusItem_Lexer,
 	StatusItem_Encoding,
 	StatusItem_EolMode,
-	StatusItem_OvrMode,
+
 	StatusItem_Zoom,
 	StatusItem_DocSize,
 	StatusItem_ItemCount,
