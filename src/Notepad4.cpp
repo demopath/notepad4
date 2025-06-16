@@ -2798,6 +2798,17 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 			PathRemoveFileSpec(wchDirectory);
 		}
 
+		WCHAR lexerName[MAX_EDITLEXER_NAME_SIZE];
+		LPCWSTR name = Style_GetCurrentLexerName(lexerName, MAX_EDITLEXER_NAME_SIZE);
+
+		WCHAR szRunCommand[MAX_PATH + 4];
+		if(!IniGetString(L"Run", name, L"", szRunCommand, COUNTOF(szRunCommand))) {
+			break;
+		}
+
+		WCHAR szCommand[MAX_PATH + MAX_EDITLEXER_NAME_SIZE + 50];
+		wsprintf(szCommand, L"/c %s \"%s\" & pause", szRunCommand, szCurFile);
+
 		SHELLEXECUTEINFO sei;
 		memset(&sei, 0, sizeof(SHELLEXECUTEINFO));
 
@@ -2805,8 +2816,8 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 		sei.fMask = 0;
 		sei.hwnd = hwnd;
 		sei.lpVerb = nullptr;
-		sei.lpFile = szCurFile;
-		sei.lpParameters = nullptr;
+		sei.lpFile = L"cmd.exe";
+		sei.lpParameters = szCommand;
 		sei.lpDirectory = wchDirectory;
 		sei.nShow = SW_SHOWNORMAL;
 
