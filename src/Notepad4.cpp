@@ -6812,6 +6812,9 @@ void UpdateStatusbar() noexcept {
 	LPWSTR start = itemText;
 	UINT index = 0;
 	for (int i = 0; i < len; i++) {
+		if (itemText[i] == L'@') {
+			itemText[i] = L'\0';
+		}
 		if (itemText[i] == L'\n') {
 			itemText[i] = L'\0';
 			items[index] = start;
