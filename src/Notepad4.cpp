@@ -860,7 +860,6 @@ void InitInstance(HINSTANCE hInstance, int nCmdShow) {
 	}
 
 
-	UpdateStatusBarCache(StatusItem_Zoom);
 	bool bOpened = false;
 	bool bFileLoadCalled = false;
 	// Pathname parameter
@@ -2157,9 +2156,6 @@ void UpdateStatusBarCache(int item) noexcept {
 		break;
 
 
-	case StatusItem_Zoom:
-		wsprintf(cachedStatusItem.tchZoom, L"%i%%", iZoomLevel);
-		break;
 	}
 }
 
@@ -2293,7 +2289,6 @@ void MsgNotifyZoom() noexcept {
 	// set minimum visual tab width to 1 when font size smaller than 3.5pt.
 	SciCall_SetTabMinimumWidth((iZoomLevel < 40)? 1 : 2);
 
-	UpdateStatusBarCache(StatusItem_Zoom);
 	Style_OnDPIChanged(pLexCurrent);
 	UpdateLineNumberWidth();
 	UpdateBookmarkMarginWidth();
@@ -5028,9 +5023,6 @@ LRESULT MsgNotify(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 				EditEnsureConsistentLineEndings();
 				return TRUE;
 
-			case StatusItem_Zoom:
-				ZoomLevelDlg(hwnd, true);
-				return TRUE;
 
 			default:
 				return FALSE;
@@ -6807,8 +6799,7 @@ void UpdateStatusbar() noexcept {
 	}
 
 	items[index] = start;
-	memcpy(AsVoidPointer(&items[StatusItem_Lexer]), AsVoidPointer(&cachedStatusItem.pszLexerName), (StatusItem_Zoom - StatusItem_Lexer)*sizeof(LPCWSTR));
-	items[StatusItem_Zoom] = cachedStatusItem.tchZoom;
+	memcpy(AsVoidPointer(&items[StatusItem_Lexer]), AsVoidPointer(&cachedStatusItem.pszLexerName), (StatusItem_DocSize - StatusItem_Lexer)*sizeof(LPCWSTR));
 	items[StatusItem_DocSize] = tchDocSize;
 
 	static int cachedWidth[StatusItem_ItemCount];
