@@ -6,9 +6,9 @@ nullptr
 }};
 
 static EDITSTYLE Styles_Global[] = {
-	{ STYLE_DEFAULT, NP2StyleX_DefaultCodeStyle, L"font:$(Code)" },
-	{ STYLE_DEFAULT, NP2StyleX_DefaultTextStyle, L"font:$(Text)" },
-	{ STYLE_LINENUMBER, NP2StyleX_MarginLineNumber, L"size:-2; fore:#2B91AF" },
+	{ STYLE_DEFAULT, NP2StyleX_DefaultCodeStyle, L"font:宋体; size:11; back:#FFFCEA" },
+	{ STYLE_DEFAULT, NP2StyleX_DefaultTextStyle, L"font:宋体; size:11; back:#FFFCEA" },
+	{ STYLE_LINENUMBER, NP2StyleX_MarginLineNumber, L"size:-1; fore:#2B91AF; back:#FFFCEA" },
 	{ 0, NP2StyleX_MatchingBrace, L"fore:#02EA0A; alpha:50; outline:200" },
 	{ 0, NP2StyleX_MatchingBraceError, L"fore:#FF0000; alpha:50; outline:200" },
 	{ STYLE_CONTROLCHAR, NP2StyleX_ControlCharacter, L"size:-1; fore:#108010; back:#228B22" },
