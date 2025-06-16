@@ -22,6 +22,8 @@
 #include <cstdint>
 #include "compiler.h"
 
+LPWSTR FormatPathForCode(LPCWSTR pszPath, LPWSTR pszBuffer, int cchBuffer) noexcept;
+
 template <typename T>
 constexpr T min(T x, T y) noexcept {
 	return (x < y) ? x : y;

@@ -3561,7 +3561,9 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 		}
 
 		if (cmd == CMD_COPYFILENAME || cmd == CMD_COPYFILENAME_NOEXT || cmd == CMD_COPYPATHNAME) {
-			SetClipData(hwnd, pszInsert);
+			WCHAR szModified[MAX_PATH * 2]; 
+			FormatPathForCode(pszInsert, szModified, COUNTOF(szModified));
+			SetClipData(hwnd, szModified);
 		} else {
 			//int iSelStart;
 			char mszBuf[MAX_PATH * kMaxMultiByteCount];

@@ -38,6 +38,40 @@ struct IUnknown;
 #include "GraphicUtils.h"
 #include "resource.h"
 
+//=============================================================================
+//
+// FormatPathForCode()
+// 将路径中的单反斜杠替换为双反斜杠并在字符串两边添加双引号
+//
+LPWSTR FormatPathForCode(LPCWSTR pszPath, LPWSTR pszBuffer, int cchBuffer) noexcept {
+	if (!pszPath || !pszBuffer || cchBuffer <= 0) {
+		return nullptr;
+	}
+	
+	// 添加开头的双引号
+	pszBuffer[0] = L'"';
+	
+	// 复制并替换反斜杠
+	int j = 1; // 从索引1开始（跳过开头的双引号）
+	for (int i = 0; pszPath[i] != L'\0' && j < cchBuffer - 2; i++) {
+		if (pszPath[i] == L'\\') {
+			if (j + 1 >= cchBuffer - 2) {
+				break; // 防止缓冲区溢出
+			}
+			pszBuffer[j++] = L'\\';
+			pszBuffer[j++] = L'\\';
+		} else {
+			pszBuffer[j++] = pszPath[i];
+		}
+	}
+	
+	// 添加结尾的双引号和字符串终止符
+	pszBuffer[j++] = L'"';
+	pszBuffer[j] = L'\0';
+	
+	return pszBuffer;
+}
+
 LPCSTR GetCurrentLogTime() noexcept {
 	static char buf[16];
 	SYSTEMTIME lt;
