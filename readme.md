@@ -1,3 +1,5 @@
+<details>
+	<summary>点击这里展开/折叠</summary>
 # Notepad4 and matepath
 
 Notepad4 (Notepad2⨯2, Notepad2++) is a light-weight Scintilla based text editor for Windows with syntax highlighting, code folding, auto-completion and API list for many programming languages and documents, it's based on (rewritten in modern C++) Florian's [Notepad2](https://www.flos-freeware.ch/notepad2.html) and XhmikosR's [Notepad2-mod](https://xhmikosr.github.io/notepad2-mod/). matepath is a file browser plugin and based on (rewritten in modern C++) Florian's [metapath](https://www.flos-freeware.ch/archive.html).
@@ -207,3 +209,4 @@ Latest development builds (artifacts in Release configuration for each compiler 
 	* [한국어](https://github.com/zufuliu/notepad4/tree/main/locale/ko) by [@VenusGirl](https://github.com/VenusGirl)
 	* [한국어](https://teus.me/Notepad4) by [@bluenlive](https://github.com/bluenlive)
 * [Notepad4 Wiki](https://github.com/zufuliu/notepad4/wiki)
+</details>
