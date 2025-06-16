@@ -3363,10 +3363,6 @@ bool Style_StrGetSize(LPCWSTR lpszStyle, int *size) noexcept {
 #define MIN_FONT_WEIGHT		0
 #define MAX_FONT_WEIGHT		1000
 bool Style_StrGetFontWeight(LPCWSTR lpszStyle, int *weight) noexcept {
-	if (Style_StrGetBold(lpszStyle)) {
-		*weight = FW_BOLD;
-		return true;
-	}
 
 	LPCWSTR p = StrStr(lpszStyle, L"weight:");
 	if (p != nullptr) {
