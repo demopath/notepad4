@@ -2153,7 +2153,7 @@ void UpdateStatusBarCache(int item) noexcept {
 		break;
 
 	case StatusItem_EolMode:
-		cachedStatusItem.pszEolMode = (iCurrentEOLMode == SC_EOL_LF) ? L"LF" : ((iCurrentEOLMode == SC_EOL_CR) ? L"CR" : L"CR+LF");
+		cachedStatusItem.pszEolMode = (iCurrentEOLMode == SC_EOL_LF) ? L" \\n " : ((iCurrentEOLMode == SC_EOL_CR) ? L" \\r " : L" \\r\\n ");
 		break;
 
 	case StatusItem_OvrMode: {
