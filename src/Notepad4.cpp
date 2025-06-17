@@ -2724,7 +2724,6 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 		UpdateWindowTitle();
 		break;
 
-	case IDT_FILE_BROWSE:
 	case IDM_FILE_BROWSE:
 		OpenContainingFolder(hwnd, szCurFile, true);
 		break;
@@ -2927,6 +2926,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 	}
 	break;
 
+	case IDT_FILE_BROWSE:
 	case IDM_FILE_RECENT:
 		if (mruFile.iSize > 0) {
 			if (FileSave(FileSaveFlag_Ask)) {
