@@ -1635,8 +1635,6 @@ void UpdateWindowTitle() noexcept {
 		lstrcat(szTitle, szReadOnly);
 	}
 
-	lstrcat(szTitle, L" - ");
-	lstrcat(szTitle, szAppName);
 
 	SetWindowText(hwndMain, szTitle);
 }
