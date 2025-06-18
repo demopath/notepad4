@@ -2788,12 +2788,23 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 		SHELLEXECUTEINFO sei;
 		memset(&sei, 0, sizeof(SHELLEXECUTEINFO));
 
+		WCHAR lexerName[MAX_EDITLEXER_NAME_SIZE];
+		LPCWSTR name = Style_GetCurrentLexerName(lexerName, MAX_EDITLEXER_NAME_SIZE);
+		WCHAR szRunCommand[MAX_PATH + 4];
+		WCHAR szCommand[MAX_PATH + MAX_EDITLEXER_NAME_SIZE + 50];
+		if(IniGetString(L"Run", name, L"", szRunCommand, COUNTOF(szRunCommand))) {
+			wsprintf(szCommand, L"/c %s \"%s\" & pause", szRunCommand, szCurFile);
+			sei.lpFile = L"cmd.exe";
+			sei.lpParameters = szCommand;
+		} else {
+			sei.lpFile = szCurFile;
+			sei.lpParameters = nullptr;
+		}
+
 		sei.cbSize = sizeof(SHELLEXECUTEINFO);
 		sei.fMask = 0;
 		sei.hwnd = hwnd;
 		sei.lpVerb = nullptr;
-		sei.lpFile = szCurFile;
-		sei.lpParameters = nullptr;
 		sei.lpDirectory = wchDirectory;
 		sei.nShow = SW_SHOWNORMAL;
 
