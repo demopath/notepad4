@@ -431,15 +431,6 @@ static inline void InvalidateStyleRedraw() noexcept {
 	SciCall_SetViewEOL(bViewEOLs);
 }
 
-// temporary fix for https://github.com/zufuliu/notepad4/issues/134: Direct2D on arm32
-static inline int GetDefualtRenderingTechnology() noexcept {
-#if defined(__arm__) || defined(_ARM_) || defined(_M_ARM)
-	return SC_TECHNOLOGY_DIRECTWRITERETAIN;
-#else
-	return IsVistaAndAbove()? SC_TECHNOLOGY_DIRECTWRITE : SC_TECHNOLOGY_DEFAULT;
-#endif
-}
-
 //=============================================================================
 //
 // WinMain()
@@ -623,7 +614,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 #endif
 
 	// we need DPI-related functions before create Scintilla window.
-#if NP2_HAS_GETDPIFORWINDOW
+#if _WIN32_WINNT >= _WIN32_WINNT_WIN10
 	g_uSystemDPI = GetDpiForSystem();
 #else
 	Scintilla_LoadDpiForWindow();
@@ -5331,8 +5322,8 @@ void LoadSettings() noexcept {
 	bEditLayoutRTL = section.GetBool(L"EditLayoutRTL", false);
 	bWindowLayoutRTL = section.GetBool(L"WindowLayoutRTL", false);
 
-	iValue = section.GetInt(L"RenderingTechnology", GetDefualtRenderingTechnology());
-	iValue = clamp(iValue, SC_TECHNOLOGY_DEFAULT, SC_TECHNOLOGY_DIRECTWRITEDC);
+	iValue = section.GetInt(L"RenderingTechnology", SC_TECHNOLOGY_DIRECTWRITE);
+	iValue = clamp(iValue, SC_TECHNOLOGY_DEFAULT, SC_TECHNOLOGY_DIRECT_WRITE_1);
 	iRenderingTechnology = bEditLayoutRTL ? SC_TECHNOLOGY_DEFAULT : iValue;
 
 	iValue = section.GetInt(L"Bidirectional", SC_BIDIRECTIONAL_DISABLED);
@@ -5599,7 +5590,7 @@ void SaveSettings(bool bSaveSettingsNow) noexcept {
 	section.SetIntEx(L"EndAtLastLine", iEndAtLastLine, 1);
 	section.SetBoolEx(L"EditLayoutRTL", bEditLayoutRTL, false);
 	section.SetBoolEx(L"WindowLayoutRTL", bWindowLayoutRTL, false);
-	section.SetIntEx(L"RenderingTechnology", iRenderingTechnology, GetDefualtRenderingTechnology());
+	section.SetIntEx(L"RenderingTechnology", iRenderingTechnology, SC_TECHNOLOGY_DIRECTWRITE);
 	section.SetIntEx(L"Bidirectional", iBidirectional, SC_BIDIRECTIONAL_DISABLED);
 	section.SetIntEx(L"FontQuality", iFontQuality, SC_EFF_QUALITY_LCD_OPTIMIZED);
 	iValue = static_cast<int>(iCaretStyle) + static_cast<int>(bBlockCaretForOVRMode)*10 + static_cast<int>(bBlockCaretOutSelection)*100;
