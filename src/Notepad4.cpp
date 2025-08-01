@@ -3023,7 +3023,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 		break;
 
 	case IDM_ENCODING_SETDEFAULT:
-		SelectDefEncodingDlg(hwnd, &iDefaultEncoding);
+		SelectDefEncodingDlg(hwnd);
 		break;
 
 	case IDM_LINEENDINGS_CRLF:
@@ -3035,7 +3035,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 	break;
 
 	case IDM_LINEENDINGS_SETDEFAULT:
-		SelectDefLineEndingDlg(hwnd, &iDefaultEOLMode);
+		SelectDefLineEndingDlg(hwnd);
 		break;
 
 	case IDT_EDIT_UNDO:
@@ -7238,8 +7238,7 @@ bool FileLoad(FileLoadFlag loadFlag, LPCWSTR lpszFile) {
 			// diff/patch file may contain content from files with different line endings.
 			status.bLineEndingsDefaultNo = bUnknownFile || pLexCurrent->iLexer == SCLEX_DIFF;
 			if (WarnLineEndingDlg(hwndMain, &status)) {
-				const int iNewEOLMode = GetScintillaEOLMode(status.iEOLMode);
-				ConvertLineEndings(iNewEOLMode);
+				ConvertLineEndings(status.iEOLMode);
 			}
 		}
 	} else if (!status.bFileTooBig) {

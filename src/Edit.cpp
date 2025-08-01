@@ -483,10 +483,6 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 	size_t lineCountCRLF = 0;
 	size_t lineCountCR = 0;
 	size_t lineCountLF = 0;
-#if 0
-	StopWatch watch;
-	watch.Start();
-#endif
 
 	const uint8_t *ptr = reinterpret_cast<const uint8_t *>(lpData);
 	// No NULL-terminated requirement for *ptr == '\n'
@@ -497,10 +493,10 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 #endif
 
 #if NP2_USE_AVX2
+	uint8_t lastCR = 0;
 	const __m256i vectCR = _mm256_set1_epi8('\r');
 	const __m256i vectLF = _mm256_set1_epi8('\n');
-	while (ptr + 2*sizeof(__m256i) < end) {
-		// unaligned loading: line starts at random position.
+	while (ptr + 2*sizeof(__m256i) <= end) {
 		const __m256i chunk1 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(ptr));
 		const __m256i chunk2 = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(ptr + sizeof(__m256i)));
 		ptr += 2*sizeof(__m256i);
@@ -509,16 +505,8 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 		maskLF |= static_cast<uint64_t>(mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk2, vectLF))) << sizeof(__m256i);
 		maskCR |= static_cast<uint64_t>(mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk2, vectCR))) << sizeof(__m256i);
 
-		if (maskCR) {
-			if (_addcarry_u64(0, maskCR, maskCR, &maskCR)) {
-				if (*ptr == '\n') {
-					// CR+LF across boundary
-					++ptr;
-					++lineCountCRLF;
-				} else {
-					++lineCountCR;
-				}
-			}
+		if (maskCR | lastCR) {
+			lastCR = _addcarry_u64(lastCR, maskCR, maskCR, &maskCR);
 
 			// maskCR and maskLF never have some bit set, after shifting maskCR by 1 bit,
 			// the bits both set in maskCR and maskLF represents CR+LF;
@@ -553,9 +541,11 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 		maskLF |= static_cast<uint64_t>(mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk2, vectLF))) << sizeof(__m256i);
 		maskCR |= static_cast<uint64_t>(mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk2, vectCR))) << sizeof(__m256i);
 
-		if (maskCR) {
-			const uint8_t lastCR = _addcarry_u64(0, maskCR, maskCR, &maskCR);
+		if (maskCR | lastCR) {
+			lastCR = _addcarry_u64(lastCR, maskCR, maskCR, &maskCR);
 			_addcarry_u64(lastCR, lineCountCR, 0, &lineCountCR);
+			lastCR = 0;
+
 			const uint64_t maskCRLF = maskCR & maskLF; // CR+LF
 			const uint64_t maskCR_LF = maskCR ^ maskLF;// CR alone or LF alone
 			maskLF = maskCR_LF & maskLF; // LF alone
@@ -571,13 +561,14 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 			lineCountLF += np2_popcount64(maskLF);
 		}
 	}
+	lineCountCR += lastCR;
 	// end NP2_USE_AVX2
 #elif NP2_USE_SSE2
 #if defined(_WIN64)
 	const __m128i vectCR = _mm_set1_epi8('\r');
 	const __m128i vectLF = _mm_set1_epi8('\n');
-	while (ptr + 4*sizeof(__m128i) < end) {
-		// unaligned loading: line starts at random position.
+	uint8_t lastCR = 0;
+	while (ptr + 4*sizeof(__m128i) <= end) {
 		const __m128i chunk1 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr));
 		const __m128i chunk2 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr + sizeof(__m128i)));
 		const __m128i chunk3 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr + 2*sizeof(__m128i)));
@@ -592,16 +583,8 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 		maskLF |= static_cast<uint64_t>(mm_movemask_epi8(_mm_cmpeq_epi8(chunk4, vectLF))) << 3*sizeof(__m128i);
 		maskCR |= static_cast<uint64_t>(mm_movemask_epi8(_mm_cmpeq_epi8(chunk4, vectCR))) << 3*sizeof(__m128i);
 
-		if (maskCR) {
-			if (_addcarry_u64(0, maskCR, maskCR, &maskCR)) {
-				if (*ptr == '\n') {
-					// CR+LF across boundary
-					++ptr;
-					++lineCountCRLF;
-				} else {
-					++lineCountCR;
-				}
-			}
+		if (maskCR | lastCR) {
+			lastCR = _addcarry_u64(lastCR, maskCR, maskCR, &maskCR);
 
 			// maskCR and maskLF never have some bit set, after shifting maskCR by 1 bit,
 			// the bits both set in maskCR and maskLF represents CR+LF;
@@ -644,9 +627,11 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 		maskLF |= static_cast<uint64_t>(mm_movemask_epi8(_mm_cmpeq_epi8(chunk4, vectLF))) << 3*sizeof(__m128i);
 		maskCR |= static_cast<uint64_t>(mm_movemask_epi8(_mm_cmpeq_epi8(chunk4, vectCR))) << 3*sizeof(__m128i);
 
-		if (maskCR) {
-			const uint8_t lastCR = _addcarry_u64(0, maskCR, maskCR, &maskCR);
+		if (maskCR | lastCR) {
+			lastCR = _addcarry_u64(lastCR, maskCR, maskCR, &maskCR);
 			_addcarry_u64(lastCR, lineCountCR, 0, &lineCountCR);
+			lastCR = 0;
+
 			const uint64_t maskCRLF = maskCR & maskLF; // CR+LF
 			const uint64_t maskCR_LF = maskCR ^ maskLF;// CR alone or LF alone
 			maskLF = maskCR_LF & maskLF; // LF alone
@@ -662,12 +647,13 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 			lineCountLF += np2_popcount64(maskLF);
 		}
 	}
+	lineCountCR += lastCR;
 	// end _WIN64 NP2_USE_SSE2
 #else
 	const __m128i vectCR = _mm_set1_epi8('\r');
 	const __m128i vectLF = _mm_set1_epi8('\n');
+	// not accumulate lastCR due to less register on x86
 	while (ptr + 2*sizeof(__m128i) < end) {
-		// unaligned loading: line starts at random position.
 		const __m128i chunk1 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr));
 		const __m128i chunk2 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(ptr + sizeof(__m128i)));
 		ptr += 2*sizeof(__m128i);
@@ -723,6 +709,7 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 		if (maskCR) {
 			const uint8_t lastCR = _addcarry_u32(0, maskCR, maskCR, &maskCR);
 			_addcarry_u32(lastCR, lineCountCR, 0, &lineCountCR);
+
 			const uint32_t maskCRLF = maskCR & maskLF; // CR+LF
 			const uint32_t maskCR_LF = maskCR ^ maskLF;// CR alone or LF alone
 			maskLF = maskCR_LF & maskLF; // LF alone
@@ -802,10 +789,11 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 #endif
 
 	const size_t linesMax = max(max(lineCountCRLF, lineCountCR), lineCountLF);
-	// values must kept in same order as SC_EOL_CRLF, SC_EOL_CR, SC_EOL_LF
-	const size_t linesCount[3] = { lineCountCRLF, lineCountCR, lineCountLF };
+	status.linesCount[SC_EOL_CRLF] = lineCountCRLF;
+	status.linesCount[SC_EOL_CR] = lineCountCR;
+	status.linesCount[SC_EOL_LF] = lineCountLF;
 	int iEOLMode = status.iEOLMode;
-	if (linesMax != linesCount[iEOLMode]) {
+	if (linesMax != static_cast<size_t>(status.linesCount[iEOLMode])) {
 		if (linesMax == lineCountCRLF) {
 			iEOLMode = SC_EOL_CRLF;
 		} else if (linesMax == lineCountLF) {
@@ -815,18 +803,9 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 		}
 	}
 
-#if 0
-	watch.Stop();
-	watch.ShowLog("EOL time");
-	printf("%s CR+LF:%u, LF: %u, CR: %u\n", __func__, (UINT)lineCountCRLF, (UINT)lineCountLF, (UINT)lineCountCR);
-#endif
-
 	status.iEOLMode = iEOLMode;
 	status.bInconsistent = ((!!lineCountCRLF) + (!!lineCountCR) + (!!lineCountLF)) > 1;
 	status.totalLineCount = lineCountCRLF + lineCountCR + lineCountLF + 1;
-	status.linesCount[0] = lineCountCRLF;
-	status.linesCount[1] = lineCountLF;
-	status.linesCount[2] = lineCountCR;
 }
 
 void EditDetectIndentation(LPCSTR lpData, DWORD cbData, EditFileVars &fv) noexcept {
@@ -1023,13 +1002,11 @@ bool EditLoadFile(LPWSTR pszFile, EditFileIOStatus &status) noexcept {
 
 	MEMORYSTATUSEX statex;
 	statex.dwLength = sizeof(statex);
-	if (GlobalMemoryStatusEx(&statex)) {
-		const ULONGLONG maxMem = statex.ullTotalPhys/2U;
-		if (maxMem < static_cast<ULONGLONG>(maxFileSize)) {
-			maxFileSize = static_cast<LONGLONG>(maxMem);
-		}
-	} else {
-		dwLastIOError = GetLastError();
+	statex.ullTotalPhys = 0;
+	GlobalMemoryStatusEx(&statex);
+	const ULONGLONG maxMem = statex.ullTotalPhys/2U;
+	if (maxMem < static_cast<ULONGLONG>(maxFileSize)) {
+		maxFileSize = static_cast<LONGLONG>(maxMem);
 	}
 
 	if (fileSize.QuadPart > maxFileSize) {
@@ -1047,9 +1024,10 @@ bool EditLoadFile(LPWSTR pszFile, EditFileIOStatus &status) noexcept {
 		return false;
 	}
 
-	char *lpData = static_cast<char *>(NP2HeapAlloc(static_cast<size_t>(fileSize.QuadPart) + NP2_ENCODING_DETECTION_PADDING));
+	char *lpData = static_cast<char *>(NP2HeapAlloc(static_cast<size_t>(fileSize.QuadPart) + NP2_ENCODING_DETECTION_PADDING*2));
+	char *lpDataUTF8 = reinterpret_cast<char *>(NP2_align_up(reinterpret_cast<uintptr_t>(lpData), NP2_ENCODING_DETECTION_PADDING));
 	DWORD cbData = 0;
-	const BOOL bReadSuccess = ReadFile(hFile, lpData, static_cast<DWORD>(fileSize.QuadPart), &cbData, nullptr);
+	const BOOL bReadSuccess = ReadFile(hFile, lpDataUTF8, static_cast<DWORD>(fileSize.QuadPart), &cbData, nullptr);
 	dwLastIOError = GetLastError();
 	CloseHandle(hFile);
 
@@ -1063,7 +1041,7 @@ bool EditLoadFile(LPWSTR pszFile, EditFileIOStatus &status) noexcept {
 	status.totalLineCount = 1;
 
 	int encodingFlag = EncodingFlag_None;
-	int iEncoding = EditDetermineEncoding(pszFile, lpData, cbData, &encodingFlag);
+	int iEncoding = EditDetermineEncoding(pszFile, lpDataUTF8, cbData, &encodingFlag);
 	if (iEncoding == CPI_DEFAULT && encodingFlag == EncodingFlag_UTF7) {
 		iEncoding = Encoding_GetAnsiIndex();
 	}
@@ -1079,20 +1057,27 @@ bool EditLoadFile(LPWSTR pszFile, EditFileIOStatus &status) noexcept {
 		return true;
 	}
 
-	char *lpDataUTF8 = lpData;
-	if (uFlags & NCP_UNICODE) {
-		// cbData/2 => WCHAR, WCHAR*3 => UTF-8
-		lpDataUTF8 = static_cast<char *>(NP2HeapAlloc((cbData + 1)*sizeof(WCHAR)));
-		LPCWSTR pszTextW = (uFlags & NCP_UNICODE_BOM) ? (reinterpret_cast<LPWSTR>(lpData) + 1) : reinterpret_cast<LPWSTR>(lpData);
+	DWORD offset = 0; // include BOM to make lpDataUTF8 aligned
+	if (uFlags & NCP_UTF8) {
+		if (uFlags & NCP_UTF8_SIGN) {
+			offset = 3;
+			lpDataUTF8 += 3;
+			cbData -= 3;
+		}
+	} else if (uFlags & NCP_UNICODE) {
+		LPCWSTR pszTextW = (uFlags & NCP_UNICODE_BOM) ? (reinterpret_cast<LPWSTR>(lpDataUTF8) + 1) : reinterpret_cast<LPWSTR>(lpDataUTF8);
 		// NOTE: requires two extra trailing NULL bytes.
 		const DWORD cchTextW = (uFlags & NCP_UNICODE_BOM) ? (cbData / sizeof(WCHAR)) : ((cbData / sizeof(WCHAR)) + 1);
 		if ((uFlags & NCP_UNICODE_REVERSE) != 0 && encodingFlag != EncodingFlag_Reversed) {
-			_swab(lpData, lpData, cbData);
+			_swab(lpDataUTF8, lpDataUTF8, cbData);
 		}
-		cbData = WideCharToMultiByte(CP_UTF8, 0, pszTextW, cchTextW, lpDataUTF8, static_cast<int>(NP2HeapSize(lpDataUTF8)), nullptr, nullptr);
+		// cbData/2 => WCHAR, WCHAR*3 => UTF-8
+		lpDataUTF8 = static_cast<char *>(NP2HeapAlloc((cbData + 1)*sizeof(WCHAR)));
+		const int size = static_cast<int>(NP2HeapSize(lpDataUTF8));
+		cbData = WideCharToMultiByte(CP_UTF8, 0, pszTextW, cchTextW, lpDataUTF8, size, nullptr, nullptr);
 		if (cbData == 0) {
 			const UINT legacyACP = mEncoding[CPI_DEFAULT].uCodePage;
-			cbData = WideCharToMultiByte(legacyACP, 0, pszTextW, -1, lpDataUTF8, static_cast<int>(NP2HeapSize(lpDataUTF8)), nullptr, nullptr);
+			cbData = WideCharToMultiByte(legacyACP, 0, pszTextW, -1, lpDataUTF8, size, nullptr, nullptr);
 			status.bUnicodeErr = true;
 		}
 		if (cbData != 0) {
@@ -1103,15 +1088,10 @@ bool EditLoadFile(LPWSTR pszFile, EditFileIOStatus &status) noexcept {
 		NP2HeapFree(lpData);
 		lpData = lpDataUTF8;
 		fvCurFile.Init(lpData, cbData);
-	} else if (uFlags & NCP_UTF8) {
-		if (uFlags & NCP_UTF8_SIGN) {
-			lpDataUTF8 += 3;
-			cbData -= 3;
-		}
 	} else if (uFlags & (NCP_8BIT | NCP_7BIT)) {
 		if (encodingFlag != EncodingFlag_UTF7 || (uFlags & NCP_7BIT) != 0) {
 			const UINT uCodePage = mEncoding[iEncoding].uCodePage;
-			lpDataUTF8 = RecodeAsUTF8(lpData, &cbData, uCodePage, 0);
+			lpDataUTF8 = RecodeAsUTF8(lpDataUTF8, &cbData, uCodePage, 0);
 			NP2HeapFree(lpData);
 			lpData = lpDataUTF8;
 		}
@@ -1121,7 +1101,7 @@ bool EditLoadFile(LPWSTR pszFile, EditFileIOStatus &status) noexcept {
 		// try to load ANSI / unknown encoding as UTF-8
 		DWORD back = cbData;
 		const UINT legacyACP = mEncoding[CPI_DEFAULT].uCodePage;
-		char * const result = RecodeAsUTF8(lpData, &back, legacyACP, MB_ERR_INVALID_CHARS);
+		char * const result = RecodeAsUTF8(lpDataUTF8, &back, legacyACP, MB_ERR_INVALID_CHARS);
 		if (result) {
 			NP2HeapFree(lpData);
 			lpDataUTF8 = result;
@@ -1133,7 +1113,12 @@ bool EditLoadFile(LPWSTR pszFile, EditFileIOStatus &status) noexcept {
 	}
 
 	if (cbData) {
-		EditDetectEOLMode(lpDataUTF8, cbData, status);
+		// StopWatch watch;
+		// watch.Start();
+		EditDetectEOLMode(lpDataUTF8 - offset, cbData + offset, status);
+		// watch.Stop();
+		// watch.ShowLog("EOL time");
+		// printf("CR+LF: %zd, LF: %zd, CR: %zd\n", status.linesCount[SC_EOL_CRLF], status.linesCount[SC_EOL_LF], status.linesCount[SC_EOL_CR]);
 		EditDetectIndentation(lpDataUTF8, cbData, fvCurFile);
 	}
 	SciCall_SetCodePage((uFlags & NCP_DEFAULT) ? iDefaultCodePage : SC_CP_UTF8);
