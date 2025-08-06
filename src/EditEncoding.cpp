@@ -1124,10 +1124,39 @@ static int DetectUTF16Latin1(const char *pTest, DWORD nLength) noexcept {
 	const char *pt = pTest;
 	const char * const end = pt + nLength;
 
-#if NP2_USE_AVX2
+#if NP2_USE_AVX512
+	const uint64_t high = UINT64_MAX << (nLength & (sizeof(__m512i) - 1));
+	__m512i test = _mm512_set1_epi16(-0x0100); // 0xFF00
+	uint64_t expected = 0xAAAAAAAA'AAAAAAAAULL;
+	do {
+		const __m512i chunk = _mm512_loadu_si512(pt);
+		pt += sizeof(__m512i);
+		uint64_t mask = _mm512_testn_epi8_mask(chunk, test);
+		if (andn_u64(mask, expected) != 0) {
+			if (pt > end) {
+				mask |= high;
+				if (andn_u64(mask, expected) == 0) {
+					break;
+				}
+			}
+			if ((expected & 1) == 0) {
+				expected >>= 1;
+				if (andn_u64(mask, expected) == 0) {
+					pt = pTest;
+					test = _mm512_bsrli_epi128(test, 1);
+					continue;
+				}
+			}
+			return CPI_DEFAULT;
+		}
+	} while (pt < end);
+	// end NP2_USE_AVX512
+#elif NP2_USE_AVX2
 	nLength &= sizeof(__m256i) - 1;
 	nLength = UINT32_MAX << nLength;
+#if !NP2_USE_AVX512
 	const __m256i zero = _mm256_setzero_si256();
+#endif
 	__m256i test = _mm256_set1_epi16(-0x0100); // 0xFF00
 	uint32_t expected = 0xAAAAAAAA;
 	do {
@@ -1136,7 +1165,11 @@ static int DetectUTF16Latin1(const char *pTest, DWORD nLength) noexcept {
 		if (_mm256_testz_si256(chunk, test) == 0)
 		//if (andn_u32(mask, expected) != 0)
 		{
+#if NP2_USE_AVX512
+			uint32_t mask = _mm256_testn_epi8_mask(chunk, chunk);
+#else
 			uint32_t mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk, zero));
+#endif
 			if (pt > end) {
 				mask |= nLength;
 				if (andn_u32(mask, expected) == 0) {
@@ -1253,10 +1286,39 @@ static int DetectUTF16LatinExt(const char *pTest, DWORD nLength) noexcept {
 	const char *pt = pTest;
 	const char * const end = pt + nLength;
 
-#if NP2_USE_AVX2
+#if NP2_USE_AVX512
+	const uint64_t high = UINT64_MAX << (nLength & (sizeof(__m512i) - 1));
+	__m512i test = _mm512_set1_epi16(-0x0800); // 0xF800
+	uint64_t expected = 0xAAAAAAAA'AAAAAAAAULL;
+	do {
+		const __m512i chunk = _mm512_loadu_si512(pt);
+		pt += sizeof(__m512i);
+		uint64_t mask = _mm512_testn_epi8_mask(chunk, test);
+		if (andn_u64(mask, expected) != 0) {
+			if (pt > end) {
+				mask |= high;
+				if (andn_u64(mask, expected) == 0) {
+					break;
+				}
+			}
+			if ((expected & 1) == 0) {
+				expected >>= 1;
+				if (andn_u64(mask, expected) == 0) {
+					pt = pTest;
+					test = _mm512_bsrli_epi128(test, 1);
+					continue;
+				}
+			}
+			return CPI_DEFAULT;
+		}
+	} while (pt < end);
+	// end NP2_USE_AVX512
+#elif NP2_USE_AVX2
 	nLength &= sizeof(__m256i) - 1;
 	nLength = UINT32_MAX << nLength;
+#if !NP2_USE_AVX512
 	const __m256i zero = _mm256_setzero_si256();
+#endif
 	__m256i test = _mm256_set1_epi16(-0x0800); // 0xF800
 	uint32_t expected = 0xAAAAAAAA;
 	do {
@@ -1265,7 +1327,11 @@ static int DetectUTF16LatinExt(const char *pTest, DWORD nLength) noexcept {
 		if (_mm256_testz_si256(chunk, test) == 0)
 		//if (andn_u32(mask, expected) != 0)
 		{
+#if NP2_USE_AVX512
+			uint32_t mask = _mm256_testn_epi8_mask(chunk, test);
+#else
 			uint32_t mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(_mm256_and_si256(chunk, test), zero));
+#endif
 			if (pt > end) {
 				mask |= nLength;
 				if (andn_u32(mask, expected) == 0) {
@@ -1564,6 +1630,10 @@ bool IsUTF8(const char *pTest, DWORD nLength) noexcept {
 // bytes, we AND them together. Only when all three have an error bit in common
 // do we fail validation.
 
+// clang -E -Xclang -fkeep-system-includes -DSSE4 z_validate.c > z_validate_sse4.c
+// clang -E -Xclang -fkeep-system-includes -DAVX2 z_validate.c > z_validate_avx2.c
+// clang -E -Xclang -fkeep-system-includes -DAVX512_VBMI z_validate.c > z_validate_avx512.c
+
 #if NP2_USE_AVX2
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((__always_inline__)) static inline
@@ -1611,7 +1681,8 @@ bool z_validate_vec_avx2(__m256i bytes, __m256i shifted_bytes, uint32_t *last_co
 	// and shift it forward by 1, 2, or 3. This loop should be unrolled by
 	// the compiler, and the (n == 1) branch inside eliminated.
 	uint32_t set = high;
-	set &= _mm256_movemask_epi8(_mm256_slli_epi16(bytes, 1));
+	// set &= _mm256_movemask_epi8(_mm256_slli_epi16(bytes, 1));
+	set &= _mm256_movemask_epi8(_mm256_add_epi16(bytes, bytes));
 	// A bitmask of the actual continuation bytes in the input
 	// Mark continuation bytes: those that have the high bit set but
 	// not the next one
@@ -1757,7 +1828,8 @@ bool z_validate_vec_sse4(__m128i bytes, __m128i shifted_bytes, uint32_t *last_co
 	// and shift it forward by 1, 2, or 3. This loop should be unrolled by
 	// the compiler, and the (n == 1) branch inside eliminated.
 	uint32_t set = high;
-	set &= _mm_movemask_epi8(_mm_slli_epi16(bytes, 1));
+	// set &= _mm_movemask_epi8(_mm_slli_epi16(bytes, 1));
+	set &= _mm_movemask_epi8(_mm_add_epi16(bytes, bytes));
 	// A bitmask of the actual continuation bytes in the input
 	// Mark continuation bytes: those that have the high bit set but
 	// not the next one
@@ -2032,7 +2104,27 @@ bool IsUTF8(const char *data, DWORD length) noexcept {
 
 static const char *CheckUTF7(const char *pTest, DWORD nLength) noexcept {
 	const char *pt = pTest;
-#if NP2_USE_AVX2
+#if NP2_USE_AVX512
+	if (nLength >= sizeof(__m512i)) {
+		const char * const end = pt + nLength - sizeof(__m512i);
+		do {
+			const __m512i chunk = _mm512_loadu_si512(pt);
+			if (_mm512_movepi8_mask(chunk)) {
+				return pt;
+			}
+			pt += sizeof(__m512i);
+		} while (pt <= end);
+	}
+
+	nLength &= sizeof(__m512i) - 1;
+	if (nLength != 0) {
+		const __m512i chunk = _mm512_loadu_si512(pt);
+		uint64_t mask = _mm512_movepi8_mask(chunk);
+		mask = bit_zero_high_u64(mask, nLength);
+		return mask ? pt : nullptr;
+	}
+	return nullptr;
+#elif NP2_USE_AVX2
 	if (nLength >= 2*sizeof(__m256i)) {
 		const char * const end = pt + nLength - 2*sizeof(__m256i);
 		do {
