@@ -134,7 +134,7 @@ extern bool bLargeFileMode;
 extern int iWrapColumn;
 extern int iWordWrapIndent;
 
-void EditSetNewText(LPCSTR lpstrText, DWORD cbText, Sci_Line lineCount) noexcept {
+void EditSetNewText(LPCSTR lpstrText, DWORD cbText, size_t lineCount) noexcept {
 	bFreezeAppTitle = true;
 	bReadOnlyMode = false;
 	iWrapColumn = 0;
@@ -492,7 +492,65 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 	const uint8_t * const end = ptr + cbData - 1;
 #endif
 
-#if NP2_USE_AVX2
+#if NP2_USE_AVX512
+	uint8_t lastCR = 0;
+	const __m512i vectCR = _mm512_set1_epi32('\r' * 0x01010101);
+	const __m512i vectLF = _mm512_set1_epi32('\n' * 0x01010101);
+	while (ptr + sizeof(__m512i) <= end) {
+		const __m512i chunk = _mm512_loadu_si512(ptr);
+		ptr += sizeof(__m512i);
+		uint64_t maskLF = _mm512_cmpeq_epi8_mask(chunk, vectLF);
+		uint64_t maskCR = _mm512_cmpeq_epi8_mask(chunk, vectCR);
+
+		if (maskCR | lastCR) {
+			lastCR = _addcarry_u64(lastCR, maskCR, maskCR, &maskCR);
+
+			// maskCR and maskLF never have some bit set, after shifting maskCR by 1 bit,
+			// the bits both set in maskCR and maskLF represents CR+LF;
+			// the bits only set in maskCR or maskLF represents individual CR or LF.
+			const uint64_t maskCRLF = maskCR & maskLF; // CR+LF
+			lineCountCRLF += np2_popcount64(maskCRLF);
+			maskLF = andn_u64(maskCR, maskLF); // LF alone
+			maskCR = maskCRLF ^ maskCR; // CR alone (with one position offset)
+			if (maskCR) {
+				lineCountCR += np2_popcount64(maskCR);
+			}
+		}
+		if (maskLF) {
+			lineCountLF += np2_popcount64(maskLF);
+		}
+	}
+
+	if (ptr < end) {
+		uint8_t buffer[sizeof(__m512i)];
+		const __m512i zero = _mm512_setzero_si512();
+		_mm512_storeu_si512(buffer, zero);
+		__movsb(buffer, ptr, end - ptr);
+
+		const __m512i chunk = _mm512_loadu_si512(ptr);
+		uint64_t maskLF = _mm512_cmpeq_epi8_mask(chunk, vectLF);
+		uint64_t maskCR = _mm512_cmpeq_epi8_mask(chunk, vectCR);
+
+		if (maskCR | lastCR) {
+			lastCR = _addcarry_u64(lastCR, maskCR, maskCR, &maskCR);
+			_addcarry_u64(lastCR, lineCountCR, 0, &lineCountCR);
+			lastCR = 0;
+
+			const uint64_t maskCRLF = maskCR & maskLF; // CR+LF
+			lineCountCRLF += np2_popcount64(maskCRLF);
+			maskLF = andn_u64(maskCR, maskLF); // LF alone
+			maskCR = maskCRLF ^ maskCR; // CR alone (with one position offset)
+			if (maskCR) {
+				lineCountCR += np2_popcount64(maskCR);
+			}
+		}
+		if (maskLF) {
+			lineCountLF += np2_popcount64(maskLF);
+		}
+	}
+	lineCountCR += lastCR;
+	// end NP2_USE_AVX512
+#elif NP2_USE_AVX2
 	uint8_t lastCR = 0;
 	const __m256i vectCR = _mm256_set1_epi8('\r');
 	const __m256i vectLF = _mm256_set1_epi8('\n');
@@ -512,12 +570,9 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 			// the bits both set in maskCR and maskLF represents CR+LF;
 			// the bits only set in maskCR or maskLF represents individual CR or LF.
 			const uint64_t maskCRLF = maskCR & maskLF; // CR+LF
-			const uint64_t maskCR_LF = maskCR ^ maskLF;// CR alone or LF alone
-			maskLF = maskCR_LF & maskLF; // LF alone
-			maskCR = maskCR_LF ^ maskLF; // CR alone (with one position offset)
-			if (maskCRLF) {
-				lineCountCRLF += np2_popcount64(maskCRLF);
-			}
+			lineCountCRLF += np2_popcount64(maskCRLF);
+			maskLF = andn_u64(maskCR, maskLF); // LF alone
+			maskCR = maskCRLF ^ maskCR; // CR alone (with one position offset)
 			if (maskCR) {
 				lineCountCR += np2_popcount64(maskCR);
 			}
@@ -547,12 +602,9 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 			lastCR = 0;
 
 			const uint64_t maskCRLF = maskCR & maskLF; // CR+LF
-			const uint64_t maskCR_LF = maskCR ^ maskLF;// CR alone or LF alone
-			maskLF = maskCR_LF & maskLF; // LF alone
-			maskCR = maskCR_LF ^ maskLF; // CR alone (with one position offset)
-			if (maskCRLF) {
-				lineCountCRLF += np2_popcount64(maskCRLF);
-			}
+			lineCountCRLF += np2_popcount64(maskCRLF);
+			maskLF = andn_u64(maskCR, maskLF); // LF alone
+			maskCR = maskCRLF ^ maskCR; // CR alone (with one position offset)
 			if (maskCR) {
 				lineCountCR += np2_popcount64(maskCR);
 			}
@@ -793,7 +845,7 @@ void EditDetectEOLMode(LPCSTR lpData, DWORD cbData, EditFileIOStatus &status) no
 	status.linesCount[SC_EOL_CR] = lineCountCR;
 	status.linesCount[SC_EOL_LF] = lineCountLF;
 	int iEOLMode = status.iEOLMode;
-	if (linesMax != static_cast<size_t>(status.linesCount[iEOLMode])) {
+	if (linesMax != status.linesCount[iEOLMode]) {
 		if (linesMax == lineCountCRLF) {
 			iEOLMode = SC_EOL_CRLF;
 		} else if (linesMax == lineCountLF) {
@@ -827,7 +879,7 @@ void EditDetectIndentation(LPCSTR lpData, DWORD cbData, EditFileVars &fv) noexce
 	const uint8_t * const end = ptr + cbData;
 	#define MAX_DETECTED_TAB_WIDTH	8
 	// line count for ambiguous lines, line indented by 1 to 8 spaces, line starts with tab.
-	uint32_t indentLineCount[1 + MAX_DETECTED_TAB_WIDTH + 1]{};
+	uint32_t indentLineCount[1 + MAX_DETECTED_TAB_WIDTH + 1 + (6*NP2_USE_AVX2)]{};
 	int prevIndentCount = 0;
 	int prevTabWidth = 0;
 
@@ -912,16 +964,22 @@ labelStart:
 		}
 	}
 
-#if NP2_USE_AVX2
-	const __m128i chunk1 = _mm_loadu_si128(reinterpret_cast<__m128i *>(indentLineCount));
-	const __m128i chunk2 = _mm_loadu_si128(reinterpret_cast<__m128i *>(indentLineCount + 4));
-	const __m128i chunk3 = _mm_loadl_epi64(reinterpret_cast<__m128i *>(indentLineCount + 8));
-	__m128i maxAll = _mm_max_epu32(_mm_max_epu32(chunk1, chunk2), chunk3);
+	// reduce code size for the unrolled loop
+#if NP2_USE_AVX512
+	const __m512i chunk = _mm512_loadu_si512(indentLineCount);
+	const __m512i maxAll = _mm512_set1_epi32(_mm512_reduce_max_epu32(chunk));
+	const uint32_t mask = _mm512_cmpeq_epu32_mask(chunk, maxAll);
+	prevTabWidth = np2_ctz(mask);
+#elif NP2_USE_AVX2
+	const __m256i chunk1 = _mm256_loadu_si256(reinterpret_cast<__m256i *>(indentLineCount));
+	const __m256i chunk2 = _mm256_loadu_si256(reinterpret_cast<__m256i *>(indentLineCount + 8));
+	__m128i maxAll = _mm_max_epu32(_mm256_castsi256_si128(chunk1), _mm256_castsi256_si128(chunk2));
+	maxAll = _mm_max_epu32(maxAll, _mm256_extracti128_si256(chunk1, 1));
 	maxAll = _mm_max_epu32(maxAll, _mm_shuffle_epi32(maxAll, _MM_SHUFFLE(0, 1, 2, 3)));
 	maxAll = _mm_max_epu32(maxAll, _mm_shuffle_epi32(maxAll, _MM_SHUFFLE(1, 0, 3, 2)));
-	uint32_t mask = _mm_movemask_ps(_mm_castsi128_ps(_mm_cmpeq_epi32(maxAll, chunk1)));
-	mask |= static_cast<uint32_t>(_mm_movemask_ps(_mm_castsi128_ps(_mm_cmpeq_epi32(maxAll, chunk2)))) << 4;
-	mask |= static_cast<uint32_t>(_mm_movemask_ps(_mm_castsi128_ps(_mm_cmpeq_epi32(maxAll, chunk3)))) << 8;
+	const __m256i chunk = _mm256_broadcastd_epi32(maxAll);
+	uint32_t mask = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(chunk, chunk1)));
+	mask |= static_cast<uint32_t>(_mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(chunk, chunk2)))) << 8;
 	prevTabWidth = np2_ctz(mask);
 
 #else
@@ -1118,7 +1176,7 @@ bool EditLoadFile(LPWSTR pszFile, EditFileIOStatus &status) noexcept {
 		EditDetectEOLMode(lpDataUTF8 - offset, cbData + offset, status);
 		// watch.Stop();
 		// watch.ShowLog("EOL time");
-		// printf("CR+LF: %zd, LF: %zd, CR: %zd\n", status.linesCount[SC_EOL_CRLF], status.linesCount[SC_EOL_LF], status.linesCount[SC_EOL_CR]);
+		// printf("CR+LF: %zu, LF: %zu, CR: %zu\n", status.linesCount[SC_EOL_CRLF], status.linesCount[SC_EOL_LF], status.linesCount[SC_EOL_CR]);
 		EditDetectIndentation(lpDataUTF8, cbData, fvCurFile);
 	}
 	SciCall_SetCodePage((uFlags & NCP_DEFAULT) ? iDefaultCodePage : SC_CP_UTF8);
