@@ -184,7 +184,7 @@ bool bUseXPFileDialog;
 static EscFunction iEscFunction;
 static bool bAlwaysOnTop;
 static bool bMinimizeToTray;
-static bool bTransparentMode;
+static TransparentMode bTransparentMode;
 static int	iEndAtLastLine;
 int iFindReplaceOption;
 static bool bEditLayoutRTL;
@@ -831,7 +831,7 @@ void InitInstance(HINSTANCE hInstance, int nCmdShow) {
 	if (IsTopMost()) {
 		SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 	}
-	if (bTransparentMode) {
+	if (bTransparentMode == TransparentMode_Always) {
 		SetWindowTransparentMode(hwnd, true, iOpacityLevel);
 	}
 	if (!bShowMenu) {
@@ -1236,6 +1236,12 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM lParam)
 		SetFocus(hwndEdit);
 		//if (bPendingChangeNotify)
 		//	PostMessage(hwnd, APPM_CHANGENOTIFY, 0, 0);
+		break;
+
+	case WM_ACTIVATE:
+		if (bTransparentMode == TransparentMode_Inactive) {
+			SetWindowTransparentMode(hwnd, LOWORD(wParam) == WA_INACTIVE, iOpacityLevel);
+		}
 		break;
 
 	case WM_DROPFILES:
@@ -1819,7 +1825,7 @@ void EditCreate(HWND hwndParent) noexcept {
 	SciCall_SetMouseDwellTime((callTipInfo.showCallTip == ShowCallTip_None)? SC_TIME_FOREVER : CallTipDefaultMouseDwellTime);
 
 	// Nonprinting characters
-	SciCall_SetViewWS((bViewWhiteSpace) ? SCWS_VISIBLEALWAYS : SCWS_INVISIBLE);
+	SciCall_SetViewWS(bViewWhiteSpace ? SCWS_VISIBLEALWAYS : SCWS_INVISIBLE);
 	SciCall_SetViewEOL(bViewEOLs);
 	SciCall_SetAutoInsertMask(autoCompletionConfig.fAutoInsertMask);
 }
@@ -2562,7 +2568,8 @@ void MsgInitMenu(HWND hwnd, WPARAM wParam, LPARAM lParam) noexcept {
 	CheckCmd(hmenu, IDM_VIEW_SINGLEFILEINSTANCE, bSingleFileInstance);
 	CheckCmd(hmenu, IDM_VIEW_ALWAYSONTOP, IsTopMost());
 	CheckCmd(hmenu, IDM_VIEW_MINTOTRAY, bMinimizeToTray);
-	CheckCmd(hmenu, IDM_VIEW_TRANSPARENT, bTransparentMode);
+	CheckCmd(hmenu, IDM_VIEW_TRANSPARENT, bTransparentMode == TransparentMode_Always);
+	CheckCmd(hmenu, IDM_VIEW_TRANSPARENT_INACTIVE, bTransparentMode == TransparentMode_Inactive);
 	i = IDM_VIEW_SCROLLPASTLASTLINE_ONE + iEndAtLastLine;
 	CheckMenuRadioItem(hmenu, IDM_VIEW_SCROLLPASTLASTLINE_ONE, IDM_VIEW_SCROLLPASTLASTLINE_QUARTER, i, MF_BYCOMMAND);
 
@@ -3397,7 +3404,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 	case IDM_EDIT_INSERT_GUID: {
 		GUID guid;
 		if (S_OK == CoCreateGuid(&guid)) {
-			char guidBuf[37]{};
+			char guidBuf[40]{};
 			sprintf(guidBuf, "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
 					static_cast<unsigned int>(guid.Data1), guid.Data2, guid.Data3,
 					guid.Data4[0], guid.Data4[1],
@@ -3439,7 +3446,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 		break;
 
 	case IDM_EDIT_INSERT_ENCODING: {
-		char msz[32] = {'\0'};
+		char msz[40] = {'\0'};
 		const char *enc = mEncoding[iCurrentEncoding].pszParseNames;
 		const char *sep = strchr(enc, ',');
 		if (sep != nullptr) {
@@ -3474,7 +3481,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 	case IDM_EDIT_INSERT_LOC_DATE:
 	case IDM_EDIT_INSERT_LOC_DATETIME: {
 		SYSTEMTIME lt;
-		char mszBuf[38];
+		char mszBuf[40];
 		// Local
 		GetLocalTime(&lt);
 		if (LOWORD(wParam) == IDM_EDIT_INSERT_LOC_DATE) {
@@ -3488,7 +3495,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
 	case IDM_EDIT_INSERT_UTC_DATETIME: {
 		SYSTEMTIME lt;
-		char mszBuf[38];
+		char mszBuf[40];
 		// UTC
 		GetSystemTime(&lt);
 		sprintf(mszBuf, "%04d-%02d-%02dT%02d:%02d:%02dZ", lt.wYear, lt.wMonth, lt.wDay, lt.wHour, lt.wMinute, lt.wSecond);
@@ -3501,7 +3508,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 	case IDM_EDIT_INSERT_TIMESTAMP_MS:	// milli	1000 micro
 	case IDM_EDIT_INSERT_TIMESTAMP_US:	// micro 	1000 nano
 	case IDM_EDIT_INSERT_TIMESTAMP_NS: {// nano
-		char mszBuf[32];
+		char mszBuf[40];
 		FILETIME ft;
 		// Windows timestamp in 100-nanosecond
 #if _WIN32_WINNT >= _WIN32_WINNT_WIN8
@@ -3562,7 +3569,6 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 			FormatPathForCode(pszInsert, szModified, COUNTOF(szModified));
 			SetClipData(hwnd, szModified);
 		} else {
-			//int iSelStart;
 			char mszBuf[MAX_PATH * kMaxMultiByteCount];
 			const UINT cpEdit = SciCall_GetCodePage();
 			WideCharToMultiByte(cpEdit, 0, pszInsert, -1, mszBuf, COUNTOF(mszBuf), nullptr, nullptr);
@@ -4042,7 +4048,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
 	case IDM_VIEW_SHOWWHITESPACE:
 		bViewWhiteSpace = !bViewWhiteSpace;
-		SciCall_SetViewWS((bViewWhiteSpace) ? SCWS_VISIBLEALWAYS : SCWS_INVISIBLE);
+		SciCall_SetViewWS(bViewWhiteSpace ? SCWS_VISIBLEALWAYS : SCWS_INVISIBLE);
 		break;
 
 	case IDM_VIEW_SHOWEOLS:
@@ -4211,9 +4217,11 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 		break;
 
 	case IDM_VIEW_TRANSPARENT:
-		bTransparentMode = !bTransparentMode;
-		SetWindowTransparentMode(hwnd, bTransparentMode, iOpacityLevel);
-		break;
+	case IDM_VIEW_TRANSPARENT_INACTIVE: {
+		const TransparentMode mode = static_cast<TransparentMode>(LOWORD(wParam) - IDM_VIEW_TRANSPARENT + 1);
+		bTransparentMode = (bTransparentMode != mode) ? mode : TransparentMode_None;
+		SetWindowTransparentMode(hwnd, bTransparentMode == TransparentMode_Always, iOpacityLevel);
+	} break;
 
 	case IDM_VIEW_SCROLLPASTLASTLINE_NO:
 	case IDM_VIEW_SCROLLPASTLASTLINE_ONE:
@@ -4604,7 +4612,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
 	case CMD_JUMP2SELSTART:
 	case CMD_JUMP2SELEND:
-		if (!SciCall_IsRectangleSelection()) {
+		if (!SciCall_IsRectangularSelection()) {
 			const Sci_Position iAnchorPos = SciCall_GetAnchor();
 			const Sci_Position iCursorPos = SciCall_GetCurrentPos();
 			if ((LOWORD(wParam) == CMD_JUMP2SELSTART && iCursorPos > iAnchorPos) || (LOWORD(wParam) != CMD_JUMP2SELSTART && iCursorPos < iAnchorPos)) {
@@ -5323,7 +5331,7 @@ void LoadSettings() noexcept {
 
 	bAlwaysOnTop = section.GetBool(L"AlwaysOnTop", false);
 	bMinimizeToTray = section.GetBool(L"MinimizeToTray", false);
-	bTransparentMode = section.GetBool(L"TransparentMode", false);
+	bTransparentMode = static_cast<TransparentMode>(section.GetInt(L"TransparentMode", TransparentMode_None));
 	iValue = section.GetInt(L"EndAtLastLine", 1);
 	iEndAtLastLine = clamp(iValue, 0, 4);
 	bEditLayoutRTL = section.GetBool(L"EditLayoutRTL", false);
@@ -5593,7 +5601,7 @@ void SaveSettings(bool bSaveSettingsNow) noexcept {
 	section.SetIntEx(L"EscFunction", static_cast<int>(iEscFunction), EscFunction_None);
 	section.SetBoolEx(L"AlwaysOnTop", bAlwaysOnTop, false);
 	section.SetBoolEx(L"MinimizeToTray", bMinimizeToTray, false);
-	section.SetBoolEx(L"TransparentMode", bTransparentMode, false);
+	section.SetIntEx(L"TransparentMode", static_cast<int>(bTransparentMode), TransparentMode_None);
 	section.SetIntEx(L"EndAtLastLine", iEndAtLastLine, 1);
 	section.SetBoolEx(L"EditLayoutRTL", bEditLayoutRTL, false);
 	section.SetBoolEx(L"WindowLayoutRTL", bWindowLayoutRTL, false);
@@ -6758,7 +6766,7 @@ void UpdateStatusbar() noexcept {
 		tchLinesSelected[0] = L'0';
 		tchLinesSelected[1] = L'\0';
 	} else {
-		if (!SciCall_IsRectangleSelection()) {
+		if (!SciCall_IsRectangularSelection()) {
 			const Sci_Position iSelByte = SciCall_GetSelTextLength();
 			const Sci_Position iSelChar = SciCall_CountCharacters(iSelStart, iSelEnd);
 			FormatNumber(tchSelByte, iSelByte);
