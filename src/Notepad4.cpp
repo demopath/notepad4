@@ -1088,19 +1088,6 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM lParam)
 	case WM_WINDOWPOSCHANGING:
 		return DefWindowProc(hwnd, umsg, wParam, lParam);
 
-	case WM_ACTIVATE:
-		if (IsTopMost()) {
-			if (LOWORD(wParam) == WA_INACTIVE) {
-				// 窗口失去焦点
-				SetWindowTransparentMode(hwnd, true, iOpacityLevel); 
-			} else {
-				// 窗口获得焦点，恢复用户设置的透明度
-				SetWindowTransparentMode(hwnd, bTransparentMode, iOpacityLevel);
-			}
-		}
-		return DefWindowProc(hwnd, umsg, wParam, lParam);
-
-
 	case WM_WINDOWPOSCHANGED: {
 		HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
 		if (monitor != hCurrentMonitor) {
