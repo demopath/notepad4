@@ -139,7 +139,7 @@ public:
 	XYPOSITION Descent(const Font *font_) noexcept override;
 	XYPOSITION InternalLeading(const Font *font_) noexcept override;
 	XYPOSITION Height(const Font *font_) noexcept override;
-	XYPOSITION AverageCharWidth(const Font *font_) noexcept override;
+	//XYPOSITION AverageCharWidth(const Font *font_) noexcept override;
 
 	void SCICALL SetClip(PRectangle rc) noexcept override;
 	void PopClip() noexcept override;
@@ -722,7 +722,9 @@ void SurfaceGDI::MeasureWidths(const Font *font_, std::string_view text, XYPOSIT
 	}
 	// If any positions not filled in then use the last position for them
 	const XYPOSITION lastPos = (fit > 0) ? positions[fit - 1] : 0.0f;
-	std::fill(positions + i, positions + text.length(), lastPos);
+	while (i < len) {
+		positions[i++] = lastPos;
+	}
 }
 
 XYPOSITION SurfaceGDI::WidthText(const Font *font_, std::string_view text) {
@@ -800,7 +802,9 @@ void SurfaceGDI::MeasureWidthsUTF8(const Font *font_, std::string_view text, XYP
 	}
 	// If any positions not filled in then use the last position for them
 	const XYPOSITION lastPos = (fit > 0) ? positions[fit - 1] : 0.0f;
-	std::fill(positions + i, positions + text.length(), lastPos);
+	while (i < len) {
+		positions[i++] = lastPos;
+	}
 }
 
 XYPOSITION SurfaceGDI::WidthTextUTF8(const Font *font_, std::string_view text) {
@@ -839,12 +843,14 @@ XYPOSITION SurfaceGDI::Height(const Font *font_) noexcept {
 	return static_cast<XYPOSITION>(tm.tmHeight);
 }
 
+/*
 XYPOSITION SurfaceGDI::AverageCharWidth(const Font *font_) noexcept {
 	SetFont(font_);
 	TEXTMETRIC tm;
 	::GetTextMetrics(hdc, &tm);
 	return static_cast<XYPOSITION>(tm.tmAveCharWidth);
 }
+*/
 
 void SurfaceGDI::SetClip(PRectangle rc) noexcept {
 	::SaveDC(hdc);
