@@ -29,9 +29,9 @@ namespace {
 
 enum class HtmlTagType {
 	None,
-	Question,	// <?xml ?>
 	Normal,
 	Void,		// void tag
+	Question,	// <?xml ?>
 	Script,
 	Style,
 };
@@ -184,7 +184,7 @@ struct PHPLexer {
 	int LineState() const noexcept {
 		int lineState = lineStateLineType | lineStateAttribute | lineContinuation
 			| propertyValue | (parenCount << 8) | (selectorLevel << 16);
-		if (tagType == HtmlTagType::Question || StyleNeedsBacktrack(sc.state) || !nestedState.empty()) {
+		if (tagType >= HtmlTagType::Question || StyleNeedsBacktrack(sc.state) || !nestedState.empty()) {
 			lineState |= LineStateNestedStateLine;
 		}
 		return lineState;
@@ -232,7 +232,7 @@ void PHPLexer::ClassifyHtmlTag(LexerWordList keywordLists) {
 	int state = SCE_H_OTHER;
 	if (tagType == HtmlTagType::Void) {
 		sc.ChangeState(SCE_H_VOID_TAG);
-	} else if (tagType > HtmlTagType::Void && sc.Match('/', '>')) {
+	} else if (tagType > HtmlTagType::Question && sc.Match('/', '>')) {
 		tagType = HtmlTagType::Normal;
 	}
 	if (sc.ch > ' ') {
@@ -256,7 +256,12 @@ bool PHPLexer::HandleBlockEnd(HtmlTextBlock block) {
 		kwType = KeywordType::None;
 		const int outer = nestedState.empty() ? SCE_H_DEFAULT : nestedState.back().state;
 		lineStateLineType = nestedState.empty() ? 0 : LineStateNestedStateLine;
-		nestedState.clear();
+		while (!nestedState.empty()) {
+			if (nestedState.back().type == VariableType::JavaScript) {
+				break;
+			}
+			nestedState.pop_back();
+		}
 		sc.SetState(SCE_H_QUESTION);
 		sc.Forward();
 		sc.ForwardSetState(outer);
