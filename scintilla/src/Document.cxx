@@ -1487,7 +1487,10 @@ Sci::Position Document::Undo() {
 				}
 				cb.PerformUndoStep();
 				if (action.at != ActionType::container) {
-					ModifiedAt(action.position);
+					if ((action.at == ActionType::insert) && (action.position >= LengthNoExcept()) && (action.position > 0))
+						ModifiedAt(action.position - 1);
+					else
+						ModifiedAt(action.position);
 					newPos = action.position;
 				}
 
@@ -2818,7 +2821,7 @@ bool Document::RemoveWatcher(DocWatcher *watcher, void *userData) noexcept {
 	try {
 		// This can never fail as WatcherWithUserData constructor and == are noexcept
 		// but std::find is not noexcept.
-		auto it = std::find(watchers.begin(), watchers.end(), WatcherWithUserData(watcher, userData));
+		const auto it = std::find(watchers.begin(), watchers.end(), WatcherWithUserData(watcher, userData));
 		if (it != watchers.end()) {
 			watchers.erase(it);
 			return true;
@@ -3893,7 +3896,7 @@ const char *BuiltinRegex::SubstituteByPosition(const Document *doc, const char *
 		0,		// s
 		'\t',	// t
 		'\x84',	// u
-		0,		// v
+		'\v',	// v
 		0,		// w
 		'\x82',	// x
 	};

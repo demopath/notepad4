@@ -50,6 +50,17 @@ constexpr bool StrNotEmpty(LPCWSTR s) noexcept {
 	return s != nullptr && *s != L'\0';
 }
 
+template <typename T, size_t N>
+requires(N*sizeof(T) >= sizeof(int))
+inline void SetStrEmpty(T (&s)[N]) noexcept {
+	memset(s, 0, sizeof(int));
+}
+
+template <typename T>
+constexpr bool FlagSet(T value, T test) noexcept {
+	return (static_cast<int>(value) & static_cast<int>(test)) != 0;
+}
+
 constexpr int ToUpperA(int ch) noexcept {
 	return (ch >= 'a' && ch <= 'z') ? (ch - 'a' + 'A') : ch;
 }
@@ -201,6 +212,7 @@ inline int GetBitmapResourceIdForCurrentDPI(int resourceId) noexcept {
 #define NP2HeapSize(hMem)			HeapSize(g_hDefaultHeap, 0, (hMem))
 
 extern WCHAR szIniFile[MAX_PATH];
+extern WCHAR szExeRealPath[MAX_PATH];
 #define IniGetString(lpSection, lpName, lpDefault, lpReturnedStr, nSize) \
 	GetPrivateProfileString(lpSection, lpName, lpDefault, lpReturnedStr, nSize, szIniFile)
 #define IniGetInt(lpSection, lpName, nDefault) \
@@ -345,7 +357,7 @@ LSTATUS Registry_DeleteTree(HKEY hKey, LPCWSTR lpSubKey) noexcept;
 
 
 inline bool KeyboardIsKeyDown(int key) noexcept {
-	return (GetKeyState(key) & 0x8000) != 0;
+	return GetKeyState(key) < 0;
 }
 
 inline void BeginWaitCursor() noexcept {
@@ -378,7 +390,6 @@ bool ExeNameFromWnd(HWND hwnd, LPWSTR szExeName, DWORD cchExeName) noexcept;
 #define SetExplorerTheme(hwnd)		SetWindowTheme((hwnd), L"Explorer", nullptr)
 #define SetListViewTheme(hwnd)		SetWindowTheme((hwnd), L"Listview", nullptr)
 
-bool FindUserResourcePath(LPCWSTR path, LPWSTR outPath) noexcept;
 HBITMAP LoadBitmapFile(LPCWSTR path) noexcept;
 HBITMAP ResizeImageForDPI(HBITMAP hbmp, UINT dpi) noexcept;
 inline HBITMAP ResizeImageForCurrentDPI(HBITMAP hbmp) noexcept {
@@ -398,23 +409,44 @@ void SnapToDefaultButton(HWND hwndBox) noexcept;
 void GetDlgPos(HWND hDlg, LPINT xDlg, LPINT yDlg) noexcept;
 void SetDlgPos(HWND hDlg, int xDlg, int yDlg) noexcept;
 
-#define ResizeDlgDirection_Both		0
-#define ResizeDlgDirection_OnlyX	1
-#define ResizeDlgDirection_OnlyY	2
-void ResizeDlg_InitEx(HWND hwnd, int cxFrame, int cyFrame, int nIdGrip, int iDirection) noexcept;
-inline void ResizeDlg_Init(HWND hwnd, int cxFrame, int cyFrame, int nIdGrip) noexcept {
-	ResizeDlg_InitEx(hwnd, cxFrame, cyFrame, nIdGrip, ResizeDlgDirection_Both);
+// bit [16, 19]
+#define RESIZE_MOVE_NONE	0
+#define RESIZE_MOVE_X		1
+#define RESIZE_MOVE_Y		2
+#define RESIZE_MOVE_XY		3
+#define RESIZE_MOVE_MASK	7
+// bit [20, 23]
+#define RESIZE_SIZE_NONE	0
+#define RESIZE_SIZE_X		1
+#define RESIZE_SIZE_Y		2
+#define RESIZE_SIZE_XY		3
+#define RESIZE_SIZE_MASK	7
+// bit [24, ]
+#define RESIZE_INVALIDATE_RECT		(1 << 24)	// static label
+#define RESIZE_AUTOSIZE_USEHEADER	(1 << 25)	// ListView
+
+#define DeferCtlMoveX(id)	((id) | (RESIZE_MOVE_X << 16))
+#define DeferCtlMoveY(id)	((id) | (RESIZE_MOVE_Y << 16))
+#define DeferCtlMove(id)	((id) | (RESIZE_MOVE_XY << 16))
+#define DeferCtlSizeX(id)	((id) | (RESIZE_SIZE_X << 20))
+#define DeferCtlSizeY(id)	((id) | (RESIZE_SIZE_Y << 20))
+#define DeferCtlSize(id)	((id) | (RESIZE_SIZE_XY << 20))
+#define DeferCtlEx(id, move, size)	((id) | ((move) << 16) | ((size) << 20))
+#define DeferCtlMoveYSizeX(id)	DeferCtlEx((id), RESIZE_MOVE_Y, RESIZE_SIZE_X)
+
+void ResizeDlg_InitEx(HWND hwnd, int *cxFrame, int *cyFrame, const DWORD *controlDefinition, DWORD controlCount) noexcept;
+inline void ResizeDlg_Init(HWND hwnd, int *cxFrame, int *cyFrame, const DWORD *controlDefinition, DWORD controlCount) noexcept {
+	ResizeDlg_InitEx(hwnd, cxFrame, cyFrame, controlDefinition, controlCount);
 }
-inline void ResizeDlg_InitX(HWND hwnd, int cxFrame, int nIdGrip) noexcept {
-	ResizeDlg_InitEx(hwnd, cxFrame, 0, nIdGrip, ResizeDlgDirection_OnlyX);
+inline void ResizeDlg_InitX(HWND hwnd, int *cxFrame, const DWORD *controlDefinition, DWORD controlCount) noexcept {
+	ResizeDlg_InitEx(hwnd, cxFrame, nullptr, controlDefinition, controlCount);
 }
-inline void ResizeDlg_InitY(HWND hwnd, int cyFrame, int nIdGrip) noexcept {
-	ResizeDlg_InitEx(hwnd, 0, cyFrame, nIdGrip, ResizeDlgDirection_OnlyY);
+inline void ResizeDlg_InitY(HWND hwnd, int *cyFrame, const DWORD *controlDefinition, DWORD controlCount) noexcept {
+	ResizeDlg_InitEx(hwnd, nullptr, cyFrame, controlDefinition, controlCount);
 }
-void ResizeDlg_Destroy(HWND hwnd, int *cxFrame, int *cyFrame) noexcept;
-void ResizeDlg_Size(HWND hwnd, LPARAM lParam, int *cx, int *cy) noexcept;
-void ResizeDlg_GetMinMaxInfo(HWND hwnd, LPARAM lParam) noexcept;
+
 HDWP DeferCtlPos(HDWP hdwp, HWND hwndDlg, int nCtlId, int dx, int dy, UINT uFlags) noexcept;
+HDWP DeferCtlPosEx(HDWP hdwp, HWND hwndDlg, int nCtlId, int dx, int dy, int cx, int cy) noexcept;
 void ResizeDlgCtl(HWND hwndDlg, int nCtlId, int dx, int dy) noexcept;
 void MakeBitmapButton(HWND hwnd, int nCtlId, HINSTANCE hInstance, int wBmpId) noexcept;
 void DeleteBitmapButton(HWND hwnd, int nCtlId) noexcept;
@@ -509,8 +541,8 @@ inline void GetProgramRealPath(LPWSTR tchModule, DWORD nSize) noexcept {
 	}
 }
 
-void PathRelativeToApp(LPCWSTR lpszSrc, LPWSTR lpszDest, DWORD dwAttrTo, bool bUnexpandEnv, bool bUnexpandMyDocs) noexcept;
-void PathAbsoluteFromApp(LPCWSTR lpszSrc, LPWSTR lpszDest, bool bExpandEnv) noexcept;
+void PathRelativeToApp(LPCWSTR lpszSrc, LPWSTR lpszDest, DWORD dwAttrTo, BOOL bUnexpandMyDocs) noexcept;
+void PathAbsoluteFromApp(LPCWSTR lpszSrc, LPWSTR lpszDest) noexcept;
 bool PathGetLnkPath(LPCWSTR pszLnkFile, LPWSTR pszResPath);
 bool PathCreateLnk(LPCWSTR pszLnkDir, LPCWSTR pszPath);
 void OpenContainingFolder(HWND hwnd, LPCWSTR pszFile, bool bSelect) noexcept;
@@ -523,7 +555,10 @@ bool ExtractFirstArgument(LPCWSTR lpArgs, LPWSTR lpArg1, LPWSTR lpArg2) noexcept
 void PrepareFilterStr(LPWSTR lpFilter) noexcept;
 void StrTab2Space(LPWSTR lpsz) noexcept;
 bool PathFixBackslashes(LPWSTR lpsz) noexcept;
-void ExpandEnvironmentStringsEx(LPWSTR lpSrc, DWORD dwSrc) noexcept;
+template <DWORD cchDest>
+[[nodiscard]] inline bool ExpandEnvironmentStringsEx(LPCWSTR lpszSrc, wchar_t (&lpszDest)[cchDest]) noexcept {
+	return ExpandEnvironmentStrings(lpszSrc, lpszDest, cchDest) - 1 < cchDest;
+}
 bool SearchPathEx(LPCWSTR lpFileName, DWORD nBufferLength, LPWSTR lpBuffer) noexcept;
 void FormatNumber(LPWSTR lpNumberStr, UINT value) noexcept;
 
@@ -577,7 +612,6 @@ struct MRUList {
 };
 
 //==== Themed Dialogs =========================================================
-bool GetThemedDialogFont(LPWSTR lpFaceName, WORD *wSize) noexcept;
 DLGTEMPLATE *LoadThemedDialogTemplate(LPCWSTR lpDialogTemplateID, HINSTANCE hInstance) noexcept;
 #define ThemedDialogBox(hInstance, lpTemplate, hWndParent, lpDialogFunc) \
 	ThemedDialogBoxParam(hInstance, lpTemplate, hWndParent, lpDialogFunc, 0)

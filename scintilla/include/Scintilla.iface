@@ -541,6 +541,7 @@ get int GetMargins=2253(,)
 enu StylesCommon=STYLE_
 val STYLE_DEFAULT=0
 val STYLE_LINENUMBER=32
+#val STYLE_LINK=33
 val STYLE_BRACELIGHT=34
 val STYLE_BRACEBAD=35
 val STYLE_CONTROLCHAR=36
@@ -3329,6 +3330,12 @@ fun line LineFromIndexPosition=2713(position pos, LineCharacterIndexType lineCha
 
 # Retrieve the position measured in index units at the start of a document line.
 fun position IndexPositionFromLine=2714(line line, LineCharacterIndexType lineCharacterIndex)
+
+# Get whether drag-and-drop is enabled or disabled
+get bool GetDragDropEnabled=2818(,)
+
+# Enable or disable drag-and-drop
+set void SetDragDropEnabled=2819(bool dragDropEnabled,)
 
 # Start notifying the container of all key presses and commands.
 fun void StartRecord=3001(,)
