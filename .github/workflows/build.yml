@@ -12,7 +12,7 @@ jobs:
     runs-on: windows-2022
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Update Version Hash
       run: |
@@ -25,7 +25,7 @@ jobs:
 
     - name: MSVC Release
       run: |
-        CALL "build\VS2017\build.bat" Build x64 Release 1
+        CALL "build\VisualStudio\build.bat" Build x64 Release 1
 
     - name: Copy Notepad4.exe
       run: |
