@@ -73,6 +73,7 @@ typedef sptr_t (*SciFnDirectStatus)(sptr_t ptr, unsigned int iMessage, uptr_t wP
 #define SCI_SETVIEWWS 2021
 #define SCTD_LONGARROW 0
 #define SCTD_STRIKEOUT 1
+#define SCTD_CONTROLCHAR 2
 #define SCI_GETTABDRAWMODE 2698
 #define SCI_SETTABDRAWMODE 2699
 #define SCI_POSITIONFROMPOINT 2022
@@ -203,6 +204,7 @@ typedef sptr_t (*SciFnDirectStatus)(sptr_t ptr, unsigned int iMessage, uptr_t wP
 #define SCI_GETMARGINS 2253
 #define STYLE_DEFAULT 0
 #define STYLE_LINENUMBER 32
+#define STYLE_LINK 33
 #define STYLE_BRACELIGHT 34
 #define STYLE_BRACEBAD 35
 #define STYLE_CONTROLCHAR 36
@@ -383,6 +385,7 @@ typedef sptr_t (*SciFnDirectStatus)(sptr_t ptr, unsigned int iMessage, uptr_t wP
 #define INDIC_GRADIENT 20
 #define INDIC_GRADIENTCENTRE 21
 #define INDIC_POINT_TOP 22
+#define INDICATOR_LINK 7
 #define INDICATOR_CONTAINER 8
 #define INDICATOR_IME 32
 #define INDICATOR_IME_MAX 35
@@ -784,6 +787,7 @@ typedef sptr_t (*SciFnDirectStatus)(sptr_t ptr, unsigned int iMessage, uptr_t wP
 #define SCI_LINEDUPLICATE 2404
 #define SCI_LOWERCASE 2340
 #define SCI_UPPERCASE 2341
+#define SCI_CUSTOMCASEMAPPING 2139
 #define SCI_LINESCROLLDOWN 2342
 #define SCI_LINESCROLLUP 2343
 #define SCI_DELETEBACKNOTLINE 2344

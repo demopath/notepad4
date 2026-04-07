@@ -38,12 +38,12 @@
 #include "Dialogs.h"
 #include "resource.h"
 
-#ifndef SM_CXPADDEDBORDER
-#define SM_CXPADDEDBORDER	92
-#endif
-
 //! show code folding level and state on line number margin
 #define NP2_DEBUG_CODE_FOLDING		0
+// style both before and after the visible text in the background
+#define NP2_LEXER_IDLE_STYLING		SC_IDLESTYLING_ALL
+// profile lexer performance inside Style_SetLexer()
+// #define NP2_LEXER_IDLE_STYLING		SC_IDLESTYLING_NONE
 
 /******************************************************************************
 *
@@ -1031,6 +1031,13 @@ static inline bool IsFileStartsWithDotLog() noexcept {
 }
 #endif
 
+static void SaveAllSettings(bool destroy) noexcept {
+	SaveSettings(false);
+	mruFile.MergeSave(bSaveRecentFiles, destroy);
+	mruFind.MergeSave(bSaveFindReplace, destroy);
+	mruReplace.MergeSave(bSaveFindReplace, destroy);
+}
+
 //=============================================================================
 //
 // MainWndProc()
@@ -1091,11 +1098,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM lParam)
 			}
 
 			// call SaveSettings() when hwndToolbar is still valid
-			SaveSettings(false);
-
-			mruFile.MergeSave(bSaveRecentFiles);
-			mruFind.MergeSave(bSaveFindReplace);
-			mruReplace.MergeSave(bSaveFindReplace);
+			SaveAllSettings(true);
 			bitmapCache.Empty();
 
 			// Remove tray icon if necessary
@@ -1516,7 +1519,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM lParam)
 		const int y = SciCall_PointYFromPosition(lParam);
 		SendMessage(hwndEdit, WM_LBUTTONUP, MAKELPARAM(x, y), MK_CONTROL);
 		EditSelectEx(wParam, lParam);
-		SciCall_SetMultipleSelection(true);
+		SciCall_SetMultipleSelection((iSelectOption & SelectOption_EnableMultipleSelection));
 	} break;
 
 	default:
@@ -1707,10 +1710,7 @@ void EditCreate(HWND hwndParent) noexcept {
 	SciCall_SetVirtualSpaceOptions(SCVS_RECTANGULARSELECTION);
 	SciCall_SetAdditionalCaretsBlink(true);
 	SciCall_SetAdditionalCaretsVisible(true);
-	// style both before and after the visible text in the background
-	SciCall_SetIdleStyling(SC_IDLESTYLING_ALL);
-	// profile lexer performance
-	//SciCall_SetIdleStyling(SC_IDLESTYLING_NONE);
+	SciCall_SetIdleStyling(NP2_LEXER_IDLE_STYLING);
 
 	SciCall_AssignCmdKey((SCK_NEXT + (SCMOD_CTRL << 16)), SCI_PARADOWN);
 	SciCall_AssignCmdKey((SCK_PRIOR + (SCMOD_CTRL << 16)), SCI_PARAUP);
@@ -3326,10 +3326,14 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 	case IDM_EDIT_MAP_CYRILLIC_LATIN:
 	case IDM_EDIT_MAP_BENGALI_LATIN:
 	case IDM_EDIT_MAP_HANGUL_DECOMPOSITION:
-	case IDM_EDIT_MAP_HANJA_HANGUL:
 		BeginWaitCursor();
-		EditMapTextCase(LOWORD(wParam));
+		SciCall_CustomCaseMapping(LOWORD(wParam));
 		EndWaitCursor();
+		break;
+
+	case IDM_EDIT_MAP_HANJA_HANGUL:
+		// implemented in ScintillaWin::SelectionToHangul().
+		SendMessage(hwndEdit, WM_IME_KEYDOWN, VK_HANJA, 0);
 		break;
 
 	case IDM_EDIT_CONVERTTABS:
@@ -4598,7 +4602,7 @@ LRESULT MsgCommand(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 		break;
 
 	case CMD_OPENINIFILE:
-		CreateIniFile(szIniFile);
+		SaveAllSettings(false);
 		FileLoad(FileLoadFlag_Default, szIniFile);
 		break;
 
@@ -4904,7 +4908,8 @@ LRESULT MsgNotify(HWND hwnd, WPARAM wParam, LPARAM lParam) {
 			break;
 
 		case SCN_HOTSPOTCLICK:
-			if ((scn->modifiers & SCMOD_CTRL) && (iSelectOption & SelectOption_EnableMultipleSelection)) {
+		case SCN_INDICATORCLICK:
+			if ((scn->modifiers & SCMOD_CTRL)) {
 				// disable multiple selection to avoid two carets after Ctrl + click
 				SciCall_SetMultipleSelection(false);
 				SciCall_SetSel(scn->position, scn->position);
@@ -6334,9 +6339,9 @@ void FindIniFile() noexcept {
 	WCHAR appData[MAX_PATH];
 	LPWSTR lpszIniFile = szIniFile;
 	bool portable = true;
-	if (StrStr(tchModule, L"WinGet") != nullptr || StrStr(tchModule, L"Chocolatey") != nullptr) {
+	if (StrStr(tchModule, L"WinGet") != nullptr || StrStr(tchModule, L"hocolatey") != nullptr) {
 		// %LOCALAPPDATA%\Microsoft\WinGet\Packages
-		// ChocolateyInstall
+		// %ProgramData%\chocolatey\lib
 		LPWSTR pszPath = nullptr;
 		// %LOCALAPPDATA%
 		// C:\Users\<username>\AppData\Local
@@ -7157,6 +7162,18 @@ bool FileSave(FileSaveFlag saveFlag) noexcept {
 				iFileWatchingMode = FileWatchingMode_None;
 			}
 			InstallFileWatching(false);
+			if (PathEqual(szCurFile, szIniFile)) {
+				LoadFlags();
+				LoadSettings();
+				mruFile.Reload();
+				mruFind.Reload();
+				mruReplace.Reload();
+				if (np2StyleTheme == StyleTheme_Default) {
+					Style_LoadAll(static_cast<StyleLoadFlag>(StyleLoadFlag_Reload | StyleLoadFlag_Apply));
+				}
+			} else if (np2StyleTheme != StyleTheme_Default && PathEqual(szCurFile, darkStyleThemeFilePath)) {
+				Style_LoadAll(static_cast<StyleLoadFlag>(StyleLoadFlag_Reload | StyleLoadFlag_Apply));
+			}
 		}
 
 		AutoSave_Stop(saveFlag & FileSaveFlag_EndSession);

@@ -1567,18 +1567,9 @@ constexpr bool IsSentenceTerminator(wchar_t ch) noexcept {
 
 //=============================================================================
 //
-// EditMapTextCase()
+// EditMapTextCase(), used by ScintillaWin::CaseMapString()
 //
-void EditMapTextCase(int menu) noexcept {
-	const Sci_Position iSelCount = SciCall_GetSelTextLength();
-	if (iSelCount == 0) {
-		return;
-	}
-	if (SciCall_IsRectangularSelection()) {
-		NotifyRectangularSelection();
-		return;
-	}
-
+char *EditMapTextCase(int menu, const char *pszText, size_t &iSelCount, UINT cpEdit) noexcept {
 	DWORD flags = 0;
 	const GUID *pGuid = nullptr;
 	switch (menu) {
@@ -1621,21 +1612,13 @@ void EditMapTextCase(int menu) noexcept {
 	case IDM_EDIT_MAP_HANGUL_DECOMPOSITION:
 		pGuid = &WIN10_ELS_GUID_TRANSLITERATION_HANGUL_DECOMPOSITION;
 		break;
-	case IDM_EDIT_MAP_HANJA_HANGUL:
-		// implemented in ScintillaWin::SelectionToHangul().
-		SendMessage(hwndEdit, WM_IME_KEYDOWN, VK_HANJA, 0);
-		return;
 	case IDM_EDIT_INVERTCASE:
 	default:
 		break;
 	}
 
-	char *pszText = static_cast<char *>(NP2HeapAlloc(iSelCount*kMaxMultiByteCount + 1));
 	LPWSTR pszTextW = static_cast<LPWSTR>(NP2HeapAlloc((iSelCount + 1) * sizeof(WCHAR)));
-
-	SciCall_GetSelText(pszText);
-	const UINT cpEdit = SciCall_GetCodePage();
-	int cchTextW = MultiByteToWideChar(cpEdit, 0, pszText, static_cast<int>(iSelCount), pszTextW, static_cast<int>(NP2HeapSize(pszTextW) / sizeof(WCHAR)));
+	int cchTextW = MultiByteToWideChar(cpEdit, 0, pszText, static_cast<int>(iSelCount), pszTextW, static_cast<int>(iSelCount + 1));
 
 	bool bChanged = false;
 	if (flags != 0 || pGuid != nullptr) {
@@ -1694,10 +1677,6 @@ void EditMapTextCase(int menu) noexcept {
 			NP2HeapFree(pszTextW);
 			pszTextW = pszMappedW;
 			cchTextW = charsConverted;
-			if (charsConverted > iSelCount) {
-				NP2HeapFree(pszText);
-				pszText = static_cast<char *>(NP2HeapAlloc(charsConverted*kMaxMultiByteCount + 1));
-			}
 		}
 	} else {
 		// invert case
@@ -1713,13 +1692,16 @@ void EditMapTextCase(int menu) noexcept {
 		}
 	}
 
+	char *pszOut = nullptr;
 	if (bChanged) {
-		const int cchText = WideCharToMultiByte(cpEdit, 0, pszTextW, cchTextW, pszText, static_cast<int>(NP2HeapSize(pszText)), nullptr, nullptr);
-		EditReplaceMainSelection(cchText, pszText);
+		int cchText = cchTextW*kMaxMultiByteCount + 1;
+		pszOut = static_cast<char *>(NP2HeapAlloc(cchText));
+		cchText = WideCharToMultiByte(cpEdit, 0, pszTextW, cchTextW, pszOut, cchText, nullptr, nullptr);
+		iSelCount = cchText;
 	}
 
-	NP2HeapFree(pszText);
 	NP2HeapFree(pszTextW);
+	return pszOut;
 }
 
 #ifndef URL_ESCAPE_AS_UTF8		// NTDDI_VERSION >= NTDDI_WIN7
@@ -6047,7 +6029,7 @@ static INT_PTR CALLBACK EditLineNumDlgProc(HWND hwnd, UINT umsg, WPARAM wParam, 
 			}
 
 			if (!(fTranslated || fTranslated2)) {
-				PostMessage(hwnd, WM_NEXTDLGCTL, AsInteger<WPARAM>(GetDlgItem(hwnd, IDC_LINENUM)), 1);
+				PostMessage(hwnd, WM_NEXTDLGCTL, AsInteger<WPARAM>(GetDlgItem(hwnd, IDC_LINENUM)), TRUE);
 				return TRUE;
 			}
 
@@ -6100,6 +6082,21 @@ bool EditLineNumDlg(HWND hwnd) noexcept {
 static INT_PTR CALLBACK EditModifyLinesDlgProc(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM lParam) noexcept {
 	static const DWORD controlDefinition[] = {
 		DeferCtlMove(IDC_RESIZEGRIP2),
+		DeferCtlMove(IDOK),
+		DeferCtlMove(IDCANCEL),
+		DeferCtlSizeXY1(IDC_MODIFY_LINE_PREFIX),
+		DeferCtlMoveY1(IDC_MODIFY_LINE_TIP2),
+		DeferCtlMoveY1SizeXY2(IDC_MODIFY_LINE_APPEND),
+		DeferCtlMoveY(IDC_MODIFY_LINE_SKIP_EMPTY),
+		DeferCtlMoveY(IDC_MODIFY_LINE_DLN_NP),
+		DeferCtlMoveY(IDC_MODIFY_LINE_DLN_ZP),
+		DeferCtlMoveY(IDC_MODIFY_LINE_TIP_DLN),
+		DeferCtlMoveY(IDC_MODIFY_LINE_CN_NP),
+		DeferCtlMoveY(IDC_MODIFY_LINE_CN_ZP),
+		DeferCtlMoveY(IDC_MODIFY_LINE_TIP_CN),
+		DeferCtlMoveY(IDC_MODIFY_LINE_ZCN_NP),
+		DeferCtlMoveY(IDC_MODIFY_LINE_ZCN_ZP),
+		DeferCtlMoveY(IDC_MODIFY_LINE_TIP_ZCN),
 		MAKELONG(IDC_MODIFY_LINE_PREFIX, IDC_MODIFY_LINE_APPEND),
 	};
 
@@ -6110,7 +6107,7 @@ static INT_PTR CALLBACK EditModifyLinesDlgProc(HWND hwnd, UINT umsg, WPARAM wPar
 
 	switch (umsg) {
 	case WM_INITDIALOG: {
-		ResizeDlg_InitY2(hwnd, &positionRecord.cxModifyLinesDlg, &positionRecord.cyModifyLinesDlg, controlDefinition, 0, 50);
+		ResizeDlg_InitY2(hwnd, &positionRecord.cxModifyLinesDlg, &positionRecord.cyModifyLinesDlg, controlDefinition, COUNTOF(controlDefinition) - 1, 50);
 
 		id_hover = 0;
 		id_capture = 0;
@@ -6135,31 +6132,6 @@ static INT_PTR CALLBACK EditModifyLinesDlgProc(HWND hwnd, UINT umsg, WPARAM wPar
 	case WM_DESTROY:
 		DeleteObject(hFontHover);
 		return FALSE;
-
-	case WM_SIZE: {
-		const int dx = GET_X_LPARAM(lParam);
-		const int dy = GET_Y_LPARAM(lParam);
-		const int cy = ResizeDlg_CalcDeltaY2(hwnd, dy, 50, IDC_MODIFY_LINE_PREFIX, IDC_MODIFY_LINE_APPEND);
-		HDWP hdwp = BeginDeferWindowPos(15);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_RESIZEGRIP2, dx, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDOK, dx, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDCANCEL, dx, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_PREFIX, dx, cy, SWP_NOMOVE);
-		hdwp = DeferCtlPosEx(hdwp, hwnd, IDC_MODIFY_LINE_APPEND, 0, cy, dx, dy - cy);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_TIP2, 0, cy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_SKIP_EMPTY, 0, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_DLN_NP, 0, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_DLN_ZP, 0, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_TIP_DLN, 0, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_CN_NP, 0, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_CN_ZP, 0, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_TIP_CN, 0, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_ZCN_NP, 0, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_ZCN_ZP, 0, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_TIP_ZCN, 0, dy, SWP_NOSIZE);
-		EndDeferWindowPos(hdwp);
-	}
-	return TRUE;
 
 	case WM_NCACTIVATE:
 		if (!wParam) {
@@ -6344,35 +6316,26 @@ bool EditAlignDlg(HWND hwnd, EditAlignMode *piAlignMode) noexcept {
 //
 //
 static INT_PTR CALLBACK EditEncloseSelectionDlgProc(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM lParam) noexcept {
+	UNREFERENCED_PARAMETER(lParam);
 	static const DWORD controlDefinition[] = {
 		DeferCtlMove(IDC_RESIZEGRIP2),
+		DeferCtlMove(IDOK),
+		DeferCtlMove(IDCANCEL),
+		DeferCtlSizeXY1(IDC_MODIFY_LINE_PREFIX),
+		DeferCtlMoveY1(IDC_MODIFY_LINE_TIP2),
+		DeferCtlMoveY1SizeXY2(IDC_MODIFY_LINE_APPEND),
 		MAKELONG(IDC_MODIFY_LINE_PREFIX, IDC_MODIFY_LINE_APPEND),
 	};
 
 	switch (umsg) {
 	case WM_INITDIALOG: {
-		ResizeDlg_InitY2(hwnd, &positionRecord.cxEncloseSelectionDlg, &positionRecord.cyEncloseSelectionDlg, controlDefinition, 0, 50);
+		ResizeDlg_InitY2(hwnd, &positionRecord.cxEncloseSelectionDlg, &positionRecord.cyEncloseSelectionDlg, controlDefinition, COUNTOF(controlDefinition) - 1, 50);
 
 		MultilineEditSetup(hwnd, IDC_MODIFY_LINE_PREFIX);
 		SetDlgItemText(hwnd, IDC_MODIFY_LINE_PREFIX, wchPrefixSelection);
 		MultilineEditSetup(hwnd, IDC_MODIFY_LINE_APPEND);
 		SetDlgItemText(hwnd, IDC_MODIFY_LINE_APPEND, wchAppendSelection);
 		CenterDlgInParent(hwnd);
-	}
-	return TRUE;
-
-	case WM_SIZE: {
-		const int dx = GET_X_LPARAM(lParam);
-		const int dy = GET_Y_LPARAM(lParam);
-		const int cy = ResizeDlg_CalcDeltaY2(hwnd, dy, 50, IDC_MODIFY_LINE_PREFIX, IDC_MODIFY_LINE_APPEND);
-		HDWP hdwp = BeginDeferWindowPos(6);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_RESIZEGRIP2, dx, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDOK, dx, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDCANCEL, dx, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_PREFIX, dx, cy, SWP_NOMOVE);
-		hdwp = DeferCtlPosEx(hdwp, hwnd, IDC_MODIFY_LINE_APPEND, 0, cy, dx, dy - cy);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_TIP2, 0, cy, SWP_NOSIZE);
-		EndDeferWindowPos(hdwp);
 	}
 	return TRUE;
 
@@ -6413,14 +6376,20 @@ void EditEncloseSelectionDlg(HWND hwnd) noexcept {
 //
 //
 static INT_PTR CALLBACK EditInsertTagDlgProc(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM lParam) noexcept {
+	UNREFERENCED_PARAMETER(lParam);
 	static const DWORD controlDefinition[] = {
 		DeferCtlMove(IDC_RESIZEGRIP2),
+		DeferCtlMove(IDOK),
+		DeferCtlMove(IDCANCEL),
+		DeferCtlSizeXY1(IDC_MODIFY_LINE_PREFIX),
+		DeferCtlMoveY1(IDC_MODIFY_LINE_TIP2),
+		DeferCtlMoveY1SizeXY2(IDC_MODIFY_LINE_APPEND),
 		MAKELONG(IDC_MODIFY_LINE_PREFIX, IDC_MODIFY_LINE_APPEND),
 	};
 
 	switch (umsg) {
 	case WM_INITDIALOG: {
-		ResizeDlg_InitY2(hwnd, &positionRecord.cxInsertTagDlg, &positionRecord.cyInsertTagDlg, controlDefinition, 0, 75);
+		ResizeDlg_InitY2(hwnd, &positionRecord.cxInsertTagDlg, &positionRecord.cyInsertTagDlg, controlDefinition, COUNTOF(controlDefinition) - 1, 75);
 
 		MultilineEditSetup(hwnd, IDC_MODIFY_LINE_PREFIX);
 		MultilineEditSetup(hwnd, IDC_MODIFY_LINE_APPEND);
@@ -6432,21 +6401,6 @@ static INT_PTR CALLBACK EditInsertTagDlgProc(HWND hwnd, UINT umsg, WPARAM wParam
 		CenterDlgInParent(hwnd);
 	}
 	return FALSE;
-
-	case WM_SIZE: {
-		const int dx = GET_X_LPARAM(lParam);
-		const int dy = GET_Y_LPARAM(lParam);
-		const int cy = ResizeDlg_CalcDeltaY2(hwnd, dy, 75, IDC_MODIFY_LINE_PREFIX, IDC_MODIFY_LINE_APPEND);
-		HDWP hdwp = BeginDeferWindowPos(6);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_RESIZEGRIP2, dx, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDOK, dx, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDCANCEL, dx, dy, SWP_NOSIZE);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_PREFIX, dx, cy, SWP_NOMOVE);
-		hdwp = DeferCtlPosEx(hdwp, hwnd, IDC_MODIFY_LINE_APPEND, 0, cy, dx, dy - cy);
-		hdwp = DeferCtlPos(hdwp, hwnd, IDC_MODIFY_LINE_TIP2, 0, cy, SWP_NOSIZE);
-		EndDeferWindowPos(hdwp);
-	}
-	return TRUE;
 
 	case WM_COMMAND:
 		switch (LOWORD(wParam)) {

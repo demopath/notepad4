@@ -1018,11 +1018,40 @@ struct RESIZEDLG {
 	SIZE templateSize;
 	const DWORD *controlDefinition;
 	UINT controlCount;
+
+	DWORD controlY2;
+	int percent;
 	int itemMinSize[2];
 	int itemTemplateSize[2];
 };
 
 void ResizeDlg_Size(HWND hwnd, const RESIZEDLG *pm, int dx, int dy) noexcept {
+	int delta1 = 0;
+	if (dy != 0 && pm->controlY2 != 0) {
+		const DWORD nCtlId = pm->controlY2;
+		RECT rc;
+		GetWindowRect(GetDlgItem(hwnd, LOWORD(nCtlId)), &rc);
+		const int size1 = rc.bottom - rc.top;
+		GetWindowRect(GetDlgItem(hwnd, HIWORD(nCtlId)), &rc);
+		const int size2 = rc.bottom - rc.top;
+		// calculate with total size instead of current size delta to avoid accumulated round off
+		const int total = dy + size1 + size2;
+		delta1 = MulDiv(total, pm->percent, 100);
+		// ensure control with smaller percent not got sized down to it's minimize size
+		if (pm->percent >= 50) {
+			const int minSize2 = pm->itemMinSize[1];
+			delta1 = max(total - delta1, minSize2) - size2;
+			delta1 = dy - delta1;
+		} else {
+			const int minSize1 = pm->itemMinSize[0];
+			delta1 = max(delta1, minSize1) - size1;
+		}
+		// const int delta2 = dy - delta1, minSize1 = pm->itemMinSize[0], minSize2 = pm->itemMinSize[1];
+		// if (delta1 + size1 < minSize1 || delta2 + size2 < minSize2)
+		// printf("delta: (%d, %d) => (%d, %d, %d/%d), (%d, %d, %d/%d)\n", dy, pm->percent,
+		// 	delta1, size1, size1 + delta1, minSize1, delta2, size2, size2 + delta2, minSize2);
+	}
+
 	HDWP hdwp = BeginDeferWindowPos(pm->controlCount);
 	UINT index = 0;
 	HWND hwndLV = nullptr;
@@ -1040,37 +1069,44 @@ void ResizeDlg_Size(HWND hwnd, const RESIZEDLG *pm, int dx, int dy) noexcept {
 		DWORD flags = SWP_NOZORDER;
 
 		definition >>= 16;
-		switch (definition & RESIZE_MOVE_MASK) {
-		case RESIZE_MOVE_X:
-			x += dx;
-			break;
-		case RESIZE_MOVE_Y:
-			y += dy;
-			break;
-		case RESIZE_MOVE_XY:
-			x += dx;
-			y += dy;
-			break;
-		default:
+		unsigned mask = definition & RESIZE_MOVE_MASK;
+		if (mask == 0) {
 			flags |= SWP_NOMOVE;
-			break;
+		} else {
+			if (mask & RESIZE_MOVE_X) {
+				x += dx;
+			}
+			mask >>= 1;
+			switch (mask) {
+			case (RESIZE_MOVE_Y >> 1):
+				y += dy;
+				break;
+			case (RESIZE_MOVE_Y1 >> 1):
+				y += delta1;
+				break;
+			}
 		}
 
 		definition >>= 4;
-		switch (definition & RESIZE_SIZE_MASK) {
-		case RESIZE_SIZE_X:
-			cx += dx;
-			break;
-		case RESIZE_SIZE_Y:
-			cy += dy;
-			break;
-		case RESIZE_SIZE_XY:
-			cx += dx;
-			cy += dy;
-			break;
-		default:
+		mask = definition & RESIZE_SIZE_MASK;
+		if (mask == 0) {
 			flags |= SWP_NOSIZE;
-			break;
+		} else {
+			if (mask & RESIZE_SIZE_X) {
+				cx += dx;
+			}
+			mask >>= 1;
+			switch (mask) {
+			case (RESIZE_SIZE_Y >> 1):
+				cy += dy;
+				break;
+			case (RESIZE_SIZE_Y1 >> 1):
+				cy += delta1;
+				break;
+			case (RESIZE_SIZE_Y2 >> 1):
+				cy += dy - delta1;
+				break;
+			}
 		}
 
 		hdwp = DeferWindowPos(hdwp, hwndCtl, nullptr, x, y, cx, cy, flags);
@@ -1116,7 +1152,7 @@ static LRESULT CALLBACK ResizeDlg_Proc(HWND hwnd, UINT umsg, WPARAM wParam, LPAR
 		const int cy = HIWORD(lParam);
 		const int dx = cx - pm->client.cx;
 		const int dy = cy - pm->client.cy;
-		lParam = MAKELPARAM(dx, dy); // unpack with GET_X_LPARAM() and GET_Y_LPARAM()
+		// lParam = MAKELPARAM(dx, dy); // unpack with GET_X_LPARAM() and GET_Y_LPARAM()
 		pm->client.cx = cx;
 		pm->client.cy = cy;
 		if (pm->dpiChanged) {
@@ -1125,7 +1161,7 @@ static LRESULT CALLBACK ResizeDlg_Proc(HWND hwnd, UINT umsg, WPARAM wParam, LPAR
 			pm->dpiChanged = FALSE;
 			return TRUE;
 		}
-		if (pm->controlCount != 0) {
+		/*if (pm->controlCount != 0)*/ {
 			ResizeDlg_Size(hwnd, pm, dx, dy);
 			return TRUE;
 		}
@@ -1186,7 +1222,7 @@ static LRESULT CALLBACK ResizeDlg_Proc(HWND hwnd, UINT umsg, WPARAM wParam, LPAR
 			*pm->cyFrame = (cy <= pm->templateSize.cy) ? 0 : cy;
 		}
 		RemoveWindowSubclass(hwnd, ResizeDlg_Proc, uIdSubclass);
-		RemoveProp(hwnd, RESIZEDLG_PROP_KEY);
+		// RemoveProp(hwnd, RESIZEDLG_PROP_KEY);
 		NP2HeapFree(pm);
 	} break;
 
@@ -1235,8 +1271,11 @@ void ResizeDlg_InitEx(HWND hwnd, int *cxFrame, int *cyFrame, const DWORD *contro
 	}
 
 	pm->controlCount = LOWORD(controlCount);
-	if (HIWORD(controlCount) != 0) {
+	controlCount >>= 16;
+	if (controlCount != 0) {
 		const DWORD nCtlId = pm->controlDefinition[pm->controlCount];
+		pm->controlY2 = nCtlId;
+		pm->percent = controlCount;
 		GetWindowRect(GetDlgItem(hwnd, LOWORD(nCtlId)), &rc);
 		pm->itemMinSize[0] = rc.bottom - rc.top;
 		pm->itemTemplateSize[0] = MulDiv(pm->itemMinSize[0], DlgBaseUnit.cy, baseUnit.cy);
@@ -1245,7 +1284,7 @@ void ResizeDlg_InitEx(HWND hwnd, int *cxFrame, int *cyFrame, const DWORD *contro
 		pm->itemTemplateSize[1] = MulDiv(pm->itemMinSize[1], DlgBaseUnit.cy, baseUnit.cy);
 	}
 
-	SetProp(hwnd, RESIZEDLG_PROP_KEY, pm);
+	// SetProp(hwnd, RESIZEDLG_PROP_KEY, pm);
 	SetWindowSubclass(hwnd, ResizeDlg_Proc, 0, AsInteger<DWORD_PTR>(pm));
 
 	SetWindowPos(hwnd, nullptr, 0, 0, cx, cy, SWP_NOZORDER | SWP_NOMOVE);
@@ -1260,28 +1299,6 @@ void ResizeDlg_InitEx(HWND hwnd, int *cxFrame, int *cyFrame, const DWORD *contro
 	HWND hwndCtl = GetDlgItem(hwnd, LOWORD(pm->controlDefinition[0]));
 	const int cGrip = SystemMetricsForDpi(SM_CXHTHUMB, pm->dpi);
 	SetWindowPos(hwndCtl, nullptr, pm->client.cx - cGrip, pm->client.cy - cGrip, cGrip, cGrip, SWP_NOZORDER);
-}
-
-int ResizeDlg_CalcDeltaEx(HWND hwnd, int dy, int cy, DWORD nCtlId) noexcept {
-	if (dy >= 0) {
-		return MulDiv(dy, cy, 100);
-	}
-
-	const RESIZEDLG * const pm = static_cast<RESIZEDLG *>(GetProp(hwnd, RESIZEDLG_PROP_KEY));
-	RECT rc;
-	GetWindowRect(GetDlgItem(hwnd, LOWORD(nCtlId)), &rc);
-	const int h1 = rc.bottom - rc.top;
-	GetWindowRect(GetDlgItem(hwnd, HIWORD(nCtlId)), &rc);
-	const int h2 = rc.bottom - rc.top;
-	const int hMin1 = pm->itemMinSize[0];
-	const int hMin2 = pm->itemMinSize[1];
-	// cy + h1 >= hMin1			cy >= hMin1 - h1
-	// dy - cy + h2 >= hMin2	cy <= dy + h2 - hMin2
-	const int cyMin = hMin1 - h1;
-	const int cyMax = dy + h2 - hMin2;
-	cy = dy - MulDiv(dy, 100 - cy, 100);
-	cy = clamp(cy, cyMin, cyMax);
-	return cy;
 }
 
 HDWP DeferCtlPos(HDWP hdwp, HWND hwndDlg, int nCtlId, int dx, int dy, UINT uFlags) noexcept {
@@ -1324,49 +1341,79 @@ void ResizeDlgCtl(HWND hwndDlg, int nCtlId, int dx, int dy) noexcept {
 
 // https://docs.microsoft.com/en-us/windows/desktop/Controls/subclassing-overview
 // https://support.microsoft.com/en-us/help/102589/how-to-use-the-enter-key-from-edit-controls-in-a-dialog-box
-// Ctrl+A: https://stackoverflow.com/questions/10127054/select-all-text-in-edit-contol-by-clicking-ctrla
 static LRESULT CALLBACK MultilineEditProc(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData) noexcept {
-	UNREFERENCED_PARAMETER(dwRefData);
+	HWND hwndParent = AsPointer<HWND>(dwRefData);
 
 	switch (umsg) {
 	case WM_GETDLGCODE:
-		if (GetWindowStyle(hwnd) & ES_WANTRETURN) {
-			return DLGC_WANTALLKEYS | DLGC_HASSETSEL;
+		if (uIdSubclass & ES_WANTRETURN) {
+			return DLGC_WANTARROWS | DLGC_WANTALLKEYS | DLGC_HASSETSEL | DLGC_WANTCHARS;
 		}
 		break;
 
 	case WM_CHAR:
+		// Ctrl+A: https://stackoverflow.com/questions/10127054/select-all-text-in-edit-contol-by-clicking-ctrla
 		if (wParam == 1) { // Ctrl+A
 			Edit_SetSel(hwnd, 0, -1);
 			return TRUE;
 		}
-		break;
-
-	case WM_KEYDOWN:
-		if (wParam == VK_ESCAPE) {
-			SendMessage(GetParent(hwnd), WM_CLOSE, 0, 0);
+		if ((wParam == VK_TAB || wParam == VK_RETURN) && !KeyboardIsKeyDown(VK_SHIFT)) {
 			return TRUE;
 		}
-		if (wParam == VK_TAB && KeyboardIsKeyDown(VK_SHIFT)) {
-			// normally focus on previous control that has the WS_TABSTOP style set.
-			// focus on next control when the ES_WANTRETURN style is set (acts as normal Tab key).
-			const bool previous = (GetWindowStyle(hwnd) & ES_WANTRETURN) == 0;
-			HWND hwndParent = GetParent(hwnd);
-			HWND hwndCtl = GetNextDlgTabItem(hwndParent, hwnd, previous);
-			if (hwndCtl == hwnd) {
-				hwndCtl = GetNextDlgTabItem(hwndParent, hwnd, !previous);
-			}
-			// TODO: find first control when hwnd is last tab item on this dialog.
-			if (hwndCtl != hwnd) {
-				PostMessage(hwndParent, WM_NEXTDLGCTL, AsInteger<WPARAM>(hwndCtl), TRUE);
-			}
-		}
 		break;
+
+	case WM_KEYDOWN: {
+		if (wParam == VK_ESCAPE) {
+			SendMessage(hwndParent, WM_CLOSE, 0, 0);
+			return TRUE;
+		}
+		const bool shift = KeyboardIsKeyDown(VK_SHIFT);
+		if (wParam == VK_RETURN && !shift) {
+			constexpr WORD nCtlId = IDOK; // SendMessage(hwndParent, DM_GETDEFID, 0, 0);
+			SendWMCommand(hwndParent, nCtlId);
+			return TRUE;
+		}
+		if (wParam == VK_TAB && !shift) {
+			// focus on next control for Tab, and previous control for Shift+Tab
+			PostMessage(hwndParent, WM_NEXTDLGCTL, FALSE, FALSE);
+			return TRUE;
+		}
+		if (wParam == VK_BACK /*&& (uIdSubclass & ES_WANTRETURN) != 0*/ && KeyboardIsKeyDown(VK_CONTROL)) {
+			// Ctrl+Backspace => Ctrl+Shift+Left, Backspace https://github.com/dotnet/winforms/issues/259
+			INPUT input[8];
+			memset(input, 0, sizeof(input));
+			// press Ctrl+Shift+Left
+			input[0].type = INPUT_KEYBOARD;
+			input[0].ki.wVk = VK_CONTROL;
+			input[1].type = INPUT_KEYBOARD;
+			input[1].ki.wVk = VK_SHIFT;
+			input[2].type = INPUT_KEYBOARD;
+			input[2].ki.wVk = VK_LEFT;
+			// release Ctrl+Shift+Left
+			input[3].type = INPUT_KEYBOARD;
+			input[3].ki.wVk = VK_LEFT;
+			input[3].ki.dwFlags = KEYEVENTF_KEYUP;
+			input[4].type = INPUT_KEYBOARD;
+			input[4].ki.wVk = VK_SHIFT;
+			input[4].ki.dwFlags = KEYEVENTF_KEYUP;
+			input[5].type = INPUT_KEYBOARD;
+			input[5].ki.wVk = VK_CONTROL;
+			input[5].ki.dwFlags = KEYEVENTF_KEYUP;
+			// press & release Backspace
+			input[6].type = INPUT_KEYBOARD;
+			input[6].ki.wVk = VK_BACK;
+			input[7].type = INPUT_KEYBOARD;
+			input[7].ki.wVk = VK_BACK;
+			input[7].ki.dwFlags = KEYEVENTF_KEYUP;
+			SendInput(COUNTOF(input), input, sizeof(INPUT));
+			return TRUE;
+		}
+	} break;
 
 	case WM_SETTEXT: {
 		const LRESULT result = DefSubclassProc(hwnd, umsg, wParam, lParam);
 		if (result) {
-			NotifyEditTextChanged(GetParent(hwnd), GetDlgCtrlID(hwnd));
+			NotifyEditTextChanged(hwndParent, GetDlgCtrlID(hwnd));
 		}
 		return result;
 	}
@@ -1383,15 +1430,18 @@ static LRESULT CALLBACK MultilineEditProc(HWND hwnd, UINT umsg, WPARAM wParam, L
 
 void MultilineEditSetup(HWND hwndDlg, int nCtlId) noexcept {
 	HWND hwnd = GetDlgItem(hwndDlg, nCtlId);
-	if (IsWin10AndAbove() && (GetWindowStyle(hwnd) & ES_WANTRETURN) != 0) {
+	const DWORD style = GetWindowStyle(hwnd);
+	if ((style & ES_WANTRETURN) == 0) {
+		// Ctrl+Backspace to delete previous word
+		// for ES_WANTRETURN, Enter key will be changed to select all text instead of line break
+		// SHAutoComplete(hwnd, SHACF_FILESYS_ONLY | SHACF_AUTOAPPEND_FORCE_OFF | SHACF_AUTOSUGGEST_FORCE_OFF);
+	} else if (IsWin10AndAbove()) {
 		extern int iCurrentEOLMode;
 		constexpr DWORD exStyle = ES_EX_ALLOWEOL_ALL | ES_EX_CONVERT_EOL_ON_PASTE;
 		SendMessage(hwnd, EM_SETEXTENDEDSTYLE, exStyle, exStyle);
 		SendMessage(hwnd, EM_SETENDOFLINE, iCurrentEOLMode + 1, 0);
 	}
-	SetWindowSubclass(hwnd, MultilineEditProc, 0, 0);
-	// Ctrl+Backspace
-	SHAutoComplete(hwnd, SHACF_FILESYS_ONLY | SHACF_AUTOAPPEND_FORCE_OFF | SHACF_AUTOSUGGEST_FORCE_OFF);
+	SetWindowSubclass(hwnd, MultilineEditProc, style, AsInteger<DWORD_PTR>(hwndDlg));
 }
 
 //=============================================================================
@@ -1580,7 +1630,7 @@ INT GetCheckedRadioButton(HWND hwnd, int nIDFirstButton, int nIDLastButton) noex
 }
 
 #if NP2_ENABLE_APP_LOCALIZATION_DLL
-HMODULE LoadLocalizedResourceDLL(LANGID lang, LPCWSTR dllName) noexcept {
+HMODULE LoadLocalizedResourceDLL(UINT lang, LPCWSTR dllName) noexcept {
 	if (lang == LANG_USER_DEFAULT) {
 		lang = GetUserDefaultUILanguage();
 	}
@@ -1589,7 +1639,8 @@ HMODULE LoadLocalizedResourceDLL(LANGID lang, LPCWSTR dllName) noexcept {
 	const LANGID subLang = SUBLANGID(lang);
 	switch (PRIMARYLANGID(lang)) {
 	case LANG_ENGLISH:
-		break;
+	default:
+		return nullptr;
 	case LANG_CHINESE:
 		folder = IsChineseTraditionalSubLang(subLang) ? L"zh-Hant" : L"zh-Hans";
 		break;
@@ -1619,10 +1670,6 @@ HMODULE LoadLocalizedResourceDLL(LANGID lang, LPCWSTR dllName) noexcept {
 		break;
 	}
 
-	if (folder == nullptr) {
-		return nullptr;
-	}
-
 	WCHAR path[MAX_PATH];
 	lstrcpy(path, szExeRealPath);
 	PathRemoveFileSpec(path);
@@ -1630,7 +1677,7 @@ HMODULE LoadLocalizedResourceDLL(LANGID lang, LPCWSTR dllName) noexcept {
 	PathAppend(path, folder);
 	PathAppend(path, dllName);
 
-	const DWORD flags = IsVistaAndAbove() ? (LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE) : LOAD_LIBRARY_AS_DATAFILE;
+	constexpr DWORD flags = LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE;
 	HMODULE hDLL = LoadLibraryEx(path, nullptr, flags);
 	return hDLL;
 }
@@ -2524,7 +2571,12 @@ void MRUList::Save() const noexcept {
 	NP2HeapFree(pIniSectionBuf);
 }
 
-void MRUList::MergeSave(bool keep) noexcept {
+void MRUList::Reload() noexcept {
+	Empty(false, true);
+	Init(szRegKey, capacity, iFlags);
+}
+
+void MRUList::MergeSave(bool keep, bool destroy) noexcept {
 	if (keep && iSize > 0) {
 		LPWSTR * const current = pszItems;
 		const int count = iSize;
@@ -2537,7 +2589,9 @@ void MRUList::MergeSave(bool keep) noexcept {
 		NP2HeapFree(AsVoidPointer(current));
 		Save();
 	}
-	Empty(!keep, true);
+	if (destroy) {
+		Empty(!keep, true);
+	}
 }
 
 void MRUList::AddToCombobox(HWND hwnd) const noexcept {

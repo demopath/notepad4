@@ -357,7 +357,7 @@ LSTATUS Registry_DeleteTree(HKEY hKey, LPCWSTR lpSubKey) noexcept;
 
 
 inline bool KeyboardIsKeyDown(int key) noexcept {
-	return GetKeyState(key) < 0;
+	return ::GetKeyState(key) & 0x8000;
 }
 
 inline void BeginWaitCursor() noexcept {
@@ -412,14 +412,14 @@ void SetDlgPos(HWND hDlg, int xDlg, int yDlg) noexcept;
 // bit [16, 19]
 #define RESIZE_MOVE_NONE	0
 #define RESIZE_MOVE_X		1
-#define RESIZE_MOVE_Y		2
-#define RESIZE_MOVE_XY		3
+#define RESIZE_MOVE_Y		(1 << 1)
+#define RESIZE_MOVE_XY		(RESIZE_MOVE_X | RESIZE_MOVE_Y)
 #define RESIZE_MOVE_MASK	7
 // bit [20, 23]
 #define RESIZE_SIZE_NONE	0
 #define RESIZE_SIZE_X		1
-#define RESIZE_SIZE_Y		2
-#define RESIZE_SIZE_XY		3
+#define RESIZE_SIZE_Y		(1 << 1)
+#define RESIZE_SIZE_XY		(RESIZE_SIZE_X | RESIZE_SIZE_Y)
 #define RESIZE_SIZE_MASK	7
 // bit [24, ]
 #define RESIZE_INVALIDATE_RECT		(1 << 24)	// static label
@@ -487,8 +487,8 @@ LRESULT SendWMSize(HWND hwnd) noexcept;
 
 #define IsButtonChecked(hwnd, uId)	(IsDlgButtonChecked(hwnd, (uId)) == BST_CHECKED)
 
-HMODULE LoadLocalizedResourceDLL(LANGID lang, LPCWSTR dllName) noexcept;
-constexpr bool IsChineseTraditionalSubLang(LANGID subLang) noexcept {
+HMODULE LoadLocalizedResourceDLL(UINT lang, LPCWSTR dllName) noexcept;
+constexpr bool IsChineseTraditionalSubLang(UINT subLang) noexcept {
 	return subLang == SUBLANG_CHINESE_TRADITIONAL
 		|| subLang == SUBLANG_CHINESE_HONGKONG
 		|| subLang == SUBLANG_CHINESE_MACAU;

@@ -21,7 +21,7 @@
 #include <optional>
 #include <algorithm>
 #include <memory>
-#include <type_traits>
+//#include <type_traits>
 
 #include "ScintillaTypes.h"
 
@@ -398,7 +398,7 @@ void CellBuffer::GetStyleRange(unsigned char *buffer, Sci::Position position, Sc
 	style.GetRange(reinterpret_cast<char *>(buffer), position, lengthRetrieve);
 }
 
-const char *CellBuffer::BufferPointer() {
+const char *CellBuffer::BufferPointer() noexcept {
 	return substance.BufferPointer();
 }
 
@@ -421,14 +421,19 @@ Sci::Position CellBuffer::GapPosition() const noexcept {
 SplitView CellBuffer::AllView() const noexcept {
 	const size_t length = substance.Length();
 	size_t length1 = substance.GapPosition();
+	const char *segment1 = substance.Segment1Pointer(0);
+	const char * const segment2 = segment1 + substance.GapLength();
+	// zero sentinel
+	memset(const_cast<char *>(segment2 + length), 0, sizeof(int));
 	if (length1 == 0) {
 		// Assign segment2 to segment1 / length1 to avoid useless test against 0 length1
 		length1 = length;
+		segment1 = segment2;
 	}
 	return SplitView {
-		substance.ElementPointer(0),
+		segment1,
 		length1,
-		substance.ElementPointer(length1) - length1,
+		segment2,
 		length
 	};
 }
@@ -455,19 +460,58 @@ const char *CellBuffer::InsertString(Sci::Position position, const char *s, Sci:
 	return data;
 }
 
-bool CellBuffer::SetStyleAt(Sci::Position position, char styleValue) noexcept {
-	return style.UpdateValueAt(position, styleValue);
-}
-
-bool CellBuffer::SetStyleFor(Sci::Position position, Sci::Position lengthStyle, char styleValue) noexcept {
+bool CellBuffer::SetStyles(Sci::Position position, Sci::Position lengthStyle, const unsigned char *styles, char styleValue) noexcept {
+	PLATFORM_ASSERT(position + lengthStyle <= style.Length());
+	Sci::Position range1Length = 0;
 	bool changed = false;
-	PLATFORM_ASSERT(lengthStyle == 0 ||
-		(lengthStyle > 0 && lengthStyle + position <= style.Length()));
-	while (lengthStyle--) {
-		if (style.UpdateValueAt(position, styleValue)) {
-			changed = true;
+	const Sci::Position part1Length = style.GapPosition();
+	char *data = style.Segment1Pointer(position);
+	if (position < part1Length) {
+		range1Length = std::min(lengthStyle, part1Length - position);
+		if (styles) {
+			if (memcmp(data, styles, range1Length) != 0) {
+				changed = true;
+				memcpy(data, styles, range1Length);
+			}
+		} else {
+			Sci::Position length = range1Length;
+			char *ptr = data;
+			do {
+				if (ptr[0] != styleValue) {
+					changed = true;
+					memset(ptr, static_cast<unsigned char>(styleValue), length);
+					break;
+				}
+				++ptr;
+				--length;
+			} while (length != 0);
 		}
-		position++;
+	}
+
+	if (range1Length < lengthStyle) {
+		const Sci::Position lengthBody = style.Length();
+		//! required for StyleContext optimizition, where position + lengthStyle <= lengthBody + 1
+		Sci::Position length = std::min(lengthStyle, lengthBody - position) - range1Length;
+		if (length != 0) {
+			data += range1Length + style.GapLength();
+			if (styles) {
+				styles += range1Length;
+				if (memcmp(data, styles, length) != 0) {
+					changed = true;
+					memcpy(data, styles, length);
+				}
+			} else {
+				do {
+					if (data[0] != styleValue) {
+						changed = true;
+						memset(data, static_cast<unsigned char>(styleValue), length);
+						break;
+					}
+					++data;
+					--length;
+				} while (length != 0);
+			}
+		}
 	}
 	return changed;
 }

@@ -44,6 +44,7 @@ C# Source
 	csx				C# Script
 	vala			GNOME Vala
 	vapi			Vala API File
+	cake			Cake (C# Make), https://cakebuild.net/
 
 CSS Style Sheet
 	css
@@ -123,6 +124,9 @@ Ruby Script
 
 	Rakefile		Ruby Makefile
 	Podfile			CocoaPods
+
+	rbs				Ruby type signature, https://github.com/ruby/rbs
+	Steepfile		Ruby Static type checker, https://github.com/soutaro/steep
 
 	cr				Crystal		https://crystal-lang.org/
 
@@ -280,6 +284,18 @@ Dart Source
 Diff File
 	diff
 	patch
+	rej				Rejected Patch
+
+
+Erlang Source
+		erl
+		hrl			Header File, https://www.erlang.org/doc/system/records_macros.html#header-files
+		yrl			YECC parser grammar, https://www.erlang.org/docs/21/man/yecc
+		Emakefile	https://www.erlang.org/doc/apps/tools/make.html
+
+Elixir Source
+		ex
+		exs			Elixir script
 
 
 Fortran Source
@@ -431,6 +447,7 @@ Markdown
 
 	litcoffee		Literate CoffeeScript
 	Rmd				R Markdown, https://rmarkdown.rstudio.com/
+	jmd				Julia Markdown, https://docs.julialang.org/en/v1/stdlib/Markdown/
 
 Mathematica
 	m				Module
@@ -488,6 +505,19 @@ Perl Script
 	pod				Perl POD File
 	plx				Perl Executable File
 	stp
+
+PowerBuilder Source
+	.pbl library exported source files
+	sra				Application
+	srd				DataWindow
+	srf				Function
+	srj				Project
+	srm				Menu
+	srp				Data Pipeline
+	srq				Query
+	srs				Structure
+	sru				User Object
+	srw				Window
 
 PowerShell Script
 	ps1

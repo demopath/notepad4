@@ -116,10 +116,20 @@ Used by VSCode, Atom etc.
 #define SPI_GETWHEELSCROLLCHARS		0x006C
 #endif
 
+extern HANDLE g_hDefaultHeap;
+extern char *EditMapTextCase(int menu, const char *pszText, size_t &iSelCount, UINT cpEdit) noexcept;
+
 using namespace Scintilla;
 using namespace Scintilla::Internal;
 
 namespace {
+
+struct HeapPointerFreer {
+	template <typename T>
+	void operator()(T *ptr) const noexcept {
+		::HeapFree(g_hDefaultHeap, 0, ptr);
+	}
+};
 
 // Two idle messages SC_WIN_IDLE and SC_WORK_IDLE.
 
@@ -151,7 +161,7 @@ constexpr Point PointFromLParam(LPARAM lParam) noexcept {
 }
 
 inline bool KeyboardIsKeyDown(int key) noexcept {
-	return ::GetKeyState(key) < 0;
+	return ::GetKeyState(key) & 0x8000;
 }
 
 // Bit 24 is the extended keyboard flag and the numeric keypad is non-extended
@@ -433,7 +443,7 @@ public:
 		::ImmSetCompositionWindow(hIMC, &CompForm);
 	}
 
-	void SetCompositionFont(const ViewStyle &vs, int style, UINT dpi) const {
+	void SetCompositionFont(const ViewStyle &vs, int style, UINT dpi) const noexcept {
 		LOGFONTW lf {};
 		const int sizeZoomed = GetFontSizeZoomed(vs.styles[style].size, vs.zoomLevel);
 		// The negative is to allow for leading
@@ -693,7 +703,7 @@ class ScintillaWin final :
 	};
 
 	void DisplayCursor(Window::Cursor c) noexcept override;
-	bool SCICALL DragThreshold(Point ptStart, Point ptNow) noexcept override;
+	bool SCICALL DragThreshold(Point ptStart, Point ptNow) const noexcept override;
 	void StartDrag() override;
 	static KeyMod MouseModifiers(uptr_t wParam) noexcept;
 
@@ -744,29 +754,28 @@ class ScintillaWin final :
 	void UpdateBaseElements() noexcept override;
 	bool SCICALL PaintContains(PRectangle rc) const noexcept override;
 	void ScrollText(Sci::Line linesToMove) override;
-	void NotifyCaretMove() noexcept override;
+	void NotifyCaretMove() const noexcept override;
 	void UpdateSystemCaret() override;
 	void SetVerticalScrollPos() override;
 	void SetHorizontalScrollPos() override;
 	void HorizontalScrollToClamped(int xPos);
 	[[nodiscard]] HorizontalScrollRange GetHorizontalScrollRange() const noexcept;
 	bool ModifyScrollBars(Sci::Line nMax, Sci::Line nPage) override;
-	void NotifyChange() noexcept override;
-	void NotifyFocus(bool focus) override;
+	void NotifyChange() const noexcept override;
+	void NotifyFocus(bool focus) const noexcept override;
 	void SetCtrlID(int identifier) noexcept override;
 	int GetCtrlID() const noexcept override;
 	void NotifyParent(NotificationData &scn) const noexcept override;
 	void NotifyDoubleClick(Point pt, KeyMod modifiers) override;
-	std::unique_ptr<CaseFolder> CaseFolderForEncoding() override;
+	std::unique_ptr<CaseFolder> CaseFolderForEncoding() const override;
 	std::string CaseMapString(const std::string &s, CaseMapping caseMapping) const override;
 	void Copy(bool asBinary) const override;
-	bool CanPaste() noexcept override;
+	bool CanPaste() const noexcept override;
 	void Paste(bool asBinary) override;
 	void SCICALL CreateCallTipWindow(PRectangle rc) noexcept override;
 #if SCI_EnablePopupMenu
-	void AddToPopUp(const char *label, int cmd = 0, bool enabled = true) noexcept override;
+	void AddToPopUp(const char *label, int cmd = 0, bool enabled = true) const noexcept override;
 #endif
-	void ClaimSelection() noexcept override;
 
 	enum class CopyEncoding {
 		Unicode,	// used in Copy & Paste, Drag & Drop
@@ -820,8 +829,8 @@ public:
 
 	/// Implement IUnknown
 	STDMETHODIMP QueryInterface(REFIID riid, PVOID *ppv) noexcept;
-	STDMETHODIMP_(ULONG)AddRef() noexcept;
-	STDMETHODIMP_(ULONG)Release() noexcept;
+	STDMETHODIMP_(ULONG)AddRef() const noexcept;
+	STDMETHODIMP_(ULONG)Release() const noexcept;
 
 	/// Implement IDropTarget
 	STDMETHODIMP DragEnter(LPDATAOBJECT pIDataSource, DWORD grfKeyState,
@@ -832,7 +841,7 @@ public:
 		POINTL pt, PDWORD pdwEffect);
 
 	/// Implement important part of IDataObject
-	STDMETHODIMP GetData(const FORMATETC *pFEIn, STGMEDIUM *pSTM);
+	STDMETHODIMP GetData(const FORMATETC *pFEIn, STGMEDIUM *pSTM) const;
 
 #if USE_WIN32_INIT_ONCE
 	static BOOL CALLBACK PrepareOnce(PINIT_ONCE initOnce, PVOID parameter, PVOID *lpContext) noexcept;
@@ -1180,7 +1189,7 @@ void ScintillaWin::DisplayCursor(Window::Cursor c) noexcept {
 	}
 }
 
-bool ScintillaWin::DragThreshold(Point ptStart, Point ptNow) noexcept {
+bool ScintillaWin::DragThreshold(Point ptStart, Point ptNow) const noexcept {
 	const Point ptDifference = ptStart - ptNow;
 	const XYPOSITION xMove = std::trunc(std::abs(ptDifference.x));
 	const XYPOSITION yMove = std::trunc(std::abs(ptDifference.y));
@@ -2883,7 +2892,7 @@ void ScintillaWin::ScrollText(Sci::Line /* linesToMove */) {
 	UpdateSystemCaret();
 }
 
-void ScintillaWin::NotifyCaretMove() noexcept {
+void ScintillaWin::NotifyCaretMove() const noexcept {
 	NotifyWinEvent(EVENT_OBJECT_LOCATIONCHANGE, MainHWND(), OBJID_CARET, CHILDID_SELF);
 }
 
@@ -2990,13 +2999,13 @@ bool ScintillaWin::ModifyScrollBars(Sci::Line nMax, Sci::Line nPage) {
 	return modified;
 }
 
-void ScintillaWin::NotifyChange() noexcept {
+void ScintillaWin::NotifyChange() const noexcept {
 	::SendMessage(::GetParent(MainHWND()), WM_COMMAND,
 		MAKEWPARAM(GetCtrlID(), FocusChange::Change),
 		AsInteger<LPARAM>(MainHWND()));
 }
 
-void ScintillaWin::NotifyFocus(bool focus) {
+void ScintillaWin::NotifyFocus(bool focus) const noexcept {
 	if (commandEvents) {
 		::SendMessage(::GetParent(MainHWND()), WM_COMMAND,
 			MAKEWPARAM(GetCtrlID(), focus ? FocusChange::Setfocus : FocusChange::Killfocus),
@@ -3062,31 +3071,92 @@ namespace {
 constexpr unsigned int safeFoldingSize = 16; // UTF8MaxBytes*maxExpansionCaseConversion
 constexpr uint8_t highByteFirst = 0x80;
 constexpr uint8_t highByteLast = 0xFF;
+constexpr uint8_t minLeadByte = 0x81;
+constexpr uint8_t maxLeadByte = 0xFE;
 constexpr uint8_t minTrailByte = 0x31;
+constexpr uint8_t maxTrailByte = 0xFE;
 
 class CaseFolderDBCS final : public CaseFolderTable {
 	const DBCSByteMask &byteMask;
 	// Allocate the expandable storage here so that it does not need to be reallocated
 	// for each call to Fold.
-	FoldMap foldingMap;
+	uint16_t foldingMap[0x8000];
 public:
-	CaseFolderDBCS(int codePage, const DBCSByteMask &mask);
-	size_t Fold(char *folded, size_t sizeFolded, const char *mixed, size_t lenMixed) const override;
+	CaseFolderDBCS(int codePage, const DBCSCharClassify *dbcsCharClass);
+	size_t Fold(char *folded, size_t sizeFolded, const char *mixed, size_t lenMixed) const noexcept override;
 };
 
 // creates a fold map by calling platform APIs so will differ between platforms.
-CaseFolderDBCS::CaseFolderDBCS(int codePage, const DBCSByteMask &mask): byteMask {mask} {
+CaseFolderDBCS::CaseFolderDBCS(int codePage, const DBCSCharClassify *dbcsCharClass): byteMask {dbcsCharClass->GetByteMask()} {
 	// const ElapsedPeriod period;
-	for (unsigned char byte1 = highByteFirst + 1; byte1 < highByteLast; byte1++) {
-		if (byteMask.IsLeadByte(byte1)) {
-			for (unsigned char byte2 = minTrailByte; byte2 < highByteLast; byte2++) {
-				if (byteMask.IsTrailByte(byte2)) {
-					const uint16_t index = DBCSIndex(byte1, byte2);
-					const DBCSPair pair{ static_cast<char>(byte1), static_cast<char>(byte2) };
-					foldingMap[index] = pair;
-					wchar_t codePoint[4]{};
-					const int lenUni = ::MultiByteToWideChar(codePage, MB_ERR_INVALID_CHARS, pair.chars, 2, codePoint, _countof(codePoint));
-					if (lenUni == 1 && codePoint[0]) {
+	// int total = 0;
+	// map each character to itself, swap lead and trail byte on little endian
+	{
+#if NP2_USE_SSE2
+		__m128i value = _mm_setr_epi16(0, 1, 2, 3, 4, 5, 6, 7);
+		const __m128i acc = _mm_set1_epi16(0x0008);
+#if NP2_USE_AVX2
+		const __m128i shuffle = _mm_setr_epi8(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14);
+#endif
+		value = _mm_or_si128(value, _mm_slli_epi16(acc, 12));
+		__m128i *ptr = reinterpret_cast<__m128i *>(foldingMap);
+		constexpr int count = _countof(foldingMap ) / (sizeof(__m128i) / sizeof(uint16_t));
+#if defined(__clang__)
+		#pragma clang loop unroll(disable)
+#elif defined(__GNUC__)
+		#pragma GCC unroll 0
+#endif
+		for (int i = 0; i < count; i++) {
+#if NP2_USE_AVX2
+			_mm_storeu_si128(ptr, _mm_shuffle_epi8(value, shuffle));
+#else
+			_mm_storeu_si128(ptr, _mm_or_si128(_mm_srli_epi16(value, 8), _mm_slli_epi16(value, 8)));
+#endif
+			ptr++;
+			value = _mm_add_epi16(value, acc);
+		}
+		// end NP2_USE_SSE2
+#elif defined(_WIN64)
+		uint64_t *ptr = reinterpret_cast<uint64_t *>(foldingMap);
+		uint64_t value = 0x8000'8001'8002'8003ULL;
+		constexpr uint64_t acc = 0x0004'0004'0004'0004ULL;
+		constexpr int count = _countof(foldingMap ) / (sizeof(uint64_t) / sizeof(uint16_t));
+		for (int i = 0; i < count; i++) {
+			*ptr++ = bswap64(value);
+			value += acc;
+		}
+#else
+		uint32_t *ptr = reinterpret_cast<uint32_t *>(foldingMap);
+		uint32_t value = 0x8000'8001U;
+		constexpr uint32_t acc = 0x0002'0002U;
+		constexpr int count = _countof(foldingMap ) / (sizeof(uint32_t) / sizeof(uint16_t));
+		for (int i = 0; i < count; i++) {
+			*ptr++ = bswap32(value);
+			value += acc;
+		}
+#endif
+	}
+
+	constexpr uint32_t minIndex = DBCSIndex(minLeadByte, minTrailByte);
+	constexpr uint32_t maxIndex = DBCSIndex(maxLeadByte, maxTrailByte) + 1;
+#if NP2_USE_SSE2
+	constexpr uint32_t offset = NP2_align_down(minIndex, sizeof(__m128i));
+	constexpr uint32_t count = NP2_align_up(maxIndex - offset, sizeof(__m128i)) / sizeof(__m128i);
+	const __m128i * const charClass = reinterpret_cast<const __m128i *>(dbcsCharClass->GetClassifyMap() + offset);
+	const __m128i mmWord = _mm_set1_epi8(static_cast<char>(CharacterClass::word));
+
+	for (uint32_t index = 0; index < count; index++) {
+		uint32_t mask = mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(charClass + index), mmWord));
+		if (mask != 0) [[unlikely]] {
+			char *chars = reinterpret_cast<char *>(&foldingMap[offset + index*sizeof(__m128i)]);
+			// const uint32_t trailing = np2::ctz(mask);
+			// chars += trailing * sizeof(uint16_t);
+			// mask >>= trailing;
+			do {
+				if (mask & 1) {
+					wchar_t codePoint[2]{};
+					const int lenUni = ::MultiByteToWideChar(codePage, MB_ERR_INVALID_CHARS, chars, 2, codePoint, _countof(codePoint));
+					if (lenUni == 1) {
 						// DBCS pair must produce a single Unicode BMP code point
 						// Could create a DBCS -> Unicode conversion map here
 						const char *foldedUTF8 = CaseConvert(codePoint[0], CaseConversion::fold);
@@ -3098,16 +3168,50 @@ CaseFolderDBCS::CaseFolderDBCS(int codePage, const DBCSByteMask &mask): byteMask
 								back, std::size(back));
 							if (lengthBack == 2) {
 								// Only allow cases where input length and folded length are both 2
-								foldingMap[index] = { back[0], back[1] };
+								memcpy(chars, back, 2);
+								// ++total;
 							}
 						}
+					}
+				}
+				chars += sizeof(uint16_t);
+				mask >>= 1;
+			} while (mask != 0);
+		}
+	}
+	// end NP2_USE_SSE2
+#else
+	const uint8_t * const charClass = dbcsCharClass->GetClassifyMap();
+	for (uint32_t index = minIndex; index < maxIndex; index++) {
+		// skip case insensitive control, space, punctuation, CJK and private character
+		if (charClass[index] == static_cast<uint8_t>(CharacterClass::word)) {
+			char * const chars = reinterpret_cast<char *>(&foldingMap[index]);
+			wchar_t codePoint[2]{};
+			const int lenUni = ::MultiByteToWideChar(codePage, MB_ERR_INVALID_CHARS, chars, 2, codePoint, _countof(codePoint));
+			if (lenUni == 1) {
+				// DBCS pair must produce a single Unicode BMP code point
+				// Could create a DBCS -> Unicode conversion map here
+				const char *foldedUTF8 = CaseConvert(codePoint[0], CaseConversion::fold);
+				if (foldedUTF8) {
+					wchar_t wFolded[safeFoldingSize];
+					const size_t charsConverted = UTF16FromUTF8(foldedUTF8, wFolded, std::size(wFolded));
+					char back[safeFoldingSize];
+					const int lengthBack = MultiByteFromWideChar(codePage, std::wstring_view(wFolded, charsConverted),
+						back, std::size(back));
+					if (lengthBack == 2) {
+						// Only allow cases where input length and folded length are both 2
+						memcpy(chars, back, 2);
+						// ++total;
 					}
 				}
 			}
 		}
 	}
+#endif
+
 	// const double duration = period.Duration()*1e3;
 	// printf("%s(%d) duration=%.6f\n", __func__, codePage, duration);
+	// printf("%s(%d) duration=%.6f, total=%d\n", __func__, codePage, duration, total);
 #if 0
 	{
 		static const wchar_t wCharacter[] = { 0x4E2D, 0xFF21, 0xFF41, 0x0391, 0x03B1, 'A', 0 };
@@ -3141,7 +3245,7 @@ CaseFolderDBCS::CaseFolderDBCS(int codePage, const DBCSByteMask &mask): byteMask
 #endif
 }
 
-size_t CaseFolderDBCS::Fold(char *folded, [[maybe_unused]] size_t sizeFolded, const char *mixed, size_t lenMixed) const {
+size_t CaseFolderDBCS::Fold(char *folded, [[maybe_unused]] size_t sizeFolded, const char *mixed, size_t lenMixed) const noexcept {
 	// This loop outputs the same length as input as for each char 1-byte -> 1-byte; 2-byte -> 2-byte
 	assert(sizeFolded >= lenMixed);
 	size_t lenOut = 0;
@@ -3151,9 +3255,9 @@ size_t CaseFolderDBCS::Fold(char *folded, [[maybe_unused]] size_t sizeFolded, co
 		if (byteMask.IsLeadByte(ch) && byteMask.IsTrailByte(ch2)) {
 			i++;
 			const uint16_t ind = DBCSIndex(ch, ch2);
-			const char *pair = foldingMap[ind].chars;
-			folded[lenOut++] = pair[0];
-			folded[lenOut++] = pair[1];
+			const uint16_t chars = foldingMap[ind];
+			memcpy(&folded[lenOut], &chars, 2);
+			lenOut += 2;
 		} else {
 			folded[lenOut++] = mapping[ch];
 		}
@@ -3164,13 +3268,13 @@ size_t CaseFolderDBCS::Fold(char *folded, [[maybe_unused]] size_t sizeFolded, co
 
 }
 
-std::unique_ptr<CaseFolder> ScintillaWin::CaseFolderForEncoding() {
+std::unique_ptr<CaseFolder> ScintillaWin::CaseFolderForEncoding() const {
 	const UINT cpDest = CodePageOfDocument();
 	if (cpDest == CpUtf8) {
 		return std::make_unique<CaseFolderUnicode>();
 	}
 	if (pdoc->dbcsCodePage) {
-		return std::make_unique<CaseFolderDBCS>(cpDest, pdoc->GetDBCSByteMask());
+		return std::make_unique<CaseFolderDBCS>(cpDest, pdoc->GetDBCSCharClass());
 	}
 	std::unique_ptr<CaseFolderTable> pcf = std::make_unique<CaseFolderTable>();
 	// Only for single byte encodings
@@ -3204,6 +3308,14 @@ std::string ScintillaWin::CaseMapString(const std::string &s, CaseMapping caseMa
 		return s;
 
 	const UINT cpDoc = CodePageOfDocument();
+	if (caseMapping >= CaseMapping::custom) {
+		size_t length = s.length();
+		const std::unique_ptr<char, HeapPointerFreer> pszText{EditMapTextCase(static_cast<int>(caseMapping), s.c_str(), length, cpDoc)};
+		if (pszText) {
+			return {pszText.get(), length};
+		}
+		return s;
+	}
 	if (cpDoc == CpUtf8) {
 		return CaseConvertString(s, (caseMapping == CaseMapping::upper) ? CaseConversion::upper : CaseConversion::lower);
 	}
@@ -3233,7 +3345,7 @@ void ScintillaWin::Copy(bool asBinary) const {
 	}
 }
 
-bool ScintillaWin::CanPaste() noexcept {
+bool ScintillaWin::CanPaste() const noexcept {
 	if (!Editor::CanPaste())
 		return false;
 #if DebugCopyAsRichTextFormat
@@ -3286,7 +3398,7 @@ public:
 	explicit operator bool() const noexcept {
 		return ptr != nullptr;
 	}
-	[[nodiscard]] SIZE_T Size() noexcept {
+	[[nodiscard]] SIZE_T Size() const noexcept {
 		return ::GlobalSize(hand);
 	}
 };
@@ -3409,7 +3521,7 @@ void ScintillaWin::CreateCallTipWindow(PRectangle) noexcept {
 }
 
 #if SCI_EnablePopupMenu
-void ScintillaWin::AddToPopUp(const char *label, int cmd, bool enabled) noexcept {
+void ScintillaWin::AddToPopUp(const char *label, int cmd, bool enabled) const noexcept {
 	HMENU hmenuPopup = static_cast<HMENU>(popup.GetID());
 	if (!label[0])
 		::AppendMenuA(hmenuPopup, MF_SEPARATOR, 0, "");
@@ -3419,10 +3531,6 @@ void ScintillaWin::AddToPopUp(const char *label, int cmd, bool enabled) noexcept
 		::AppendMenuA(hmenuPopup, MF_STRING | MF_DISABLED | MF_GRAYED, cmd, label);
 }
 #endif
-
-void ScintillaWin::ClaimSelection() noexcept {
-	// Windows does not have a primary selection
-}
 
 /// Implement IUnknown
 STDMETHODIMP FormatEnumerator::QueryInterface(REFIID riid, PVOID *ppv) noexcept {
@@ -4051,11 +4159,11 @@ STDMETHODIMP ScintillaWin::QueryInterface(REFIID riid, PVOID *ppv) noexcept {
 	return S_OK;
 }
 
-STDMETHODIMP_(ULONG) ScintillaWin::AddRef() noexcept {
+STDMETHODIMP_(ULONG) ScintillaWin::AddRef() const noexcept {
 	return 1;
 }
 
-STDMETHODIMP_(ULONG) ScintillaWin::Release() noexcept {
+STDMETHODIMP_(ULONG) ScintillaWin::Release() const noexcept {
 	return 1;
 }
 
@@ -4230,7 +4338,8 @@ STDMETHODIMP ScintillaWin::Drop(LPDATAOBJECT pIDataSource, DWORD grfKeyState, PO
 		for (UINT fmtIndex = 0; fmtIndex < dropFormatCount; fmtIndex++) {
 			const CLIPFORMAT fmt = dropFormat[fmtIndex];
 			FORMATETC fmtu = { fmt, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
-			STGMEDIUM medium {};
+			STGMEDIUM medium;
+			memset(&medium, 0, sizeof(medium));
 			hr = pIDataSource->GetData(&fmtu, &medium);
 
 			if (SUCCEEDED(hr) && medium.hGlobal) {
@@ -4312,7 +4421,7 @@ STDMETHODIMP ScintillaWin::Drop(LPDATAOBJECT pIDataSource, DWORD grfKeyState, PO
 }
 
 /// Implement important part of IDataObject
-STDMETHODIMP ScintillaWin::GetData(const FORMATETC *pFEIn, STGMEDIUM *pSTM) {
+STDMETHODIMP ScintillaWin::GetData(const FORMATETC *pFEIn, STGMEDIUM *pSTM) const {
 	if (!SupportedFormat(pFEIn)) {
 		//Platform::DebugPrintf("DOB GetData No %d %x %x fmt=%x\n", lenDrag, pFEIn, pSTM, pFEIn->cfFormat);
 		return DATA_E_FORMATETC;

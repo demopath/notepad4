@@ -93,7 +93,7 @@ def BuildKeywordContent(rid, lexer, keywordList, keywordCount=16):
 						duplicate = find_duplicate_lower(items)
 						print(rid, comment, 'duplicate words:', duplicate)
 					makeLower = True
-					items = [item[1] for item in sorted(zip(lowercase, items))]
+					items = [item[1] for item in sorted(zip(lowercase, items, strict=True))]
 			if not makeLower:
 				items = sorted(items)
 			lines = MakeKeywordLines(items, makeLower=makeLower)
@@ -972,6 +972,38 @@ def parse_dart_api_file(path):
 		('enumeration', keywordMap['enumeration'], KeywordAttr.Default),
 		('metadata', keywordMap['metadata'], KeywordAttr.NoLexer | KeywordAttr.Special),
 		('function', keywordMap['function'], KeywordAttr.NoLexer),
+	]
+
+def parse_elixir_api_file(path):
+	sections = read_api_file(path, '#')
+	keywordMap = {}
+	for key, doc in sections:
+		items = []
+		if key == 'keywords':
+			items = doc.split()
+		elif key == 'directives':
+			items = re.findall(r'@(\w+)', doc)
+		keywordMap[key] = items
+
+	return [
+		('keywords', keywordMap['keywords'], KeywordAttr.Default),
+		('annotations', keywordMap['annotations'], KeywordAttr.NoLexer | KeywordAttr.NoAutoComp | KeywordAttr.Special),
+	]
+
+def parse_erlang_api_file(path):
+	sections = read_api_file(path, '%')
+	keywordMap = {}
+	for key, doc in sections:
+		items = []
+		if key == 'keywords':
+			items = doc.split()
+		elif key == 'directives':
+			items = re.findall(r'-(\w+)', doc)
+		keywordMap[key] = items
+
+	return [
+		('keywords', keywordMap['keywords'], KeywordAttr.Default),
+		('directives', keywordMap['directives'], KeywordAttr.NoLexer | KeywordAttr.NoAutoComp | KeywordAttr.Special),
 	]
 
 def parse_fortran_api_file(path):
@@ -1924,6 +1956,33 @@ def parse_php_api_file(path):
 		('void tag', HtmlVoidTagList, KeywordAttr.NoAutoComp | KeywordAttr.PrefixSpace),
 		('JavaScript', JavaScriptKeywordMap['keywords'], KeywordAttr.NoAutoComp),
 		('phpdoc', keywordMap['phpdoc'], KeywordAttr.NoLexer | KeywordAttr.NoAutoComp | KeywordAttr.Special),
+	]
+
+def parse_powerbuilder_api_file(path):
+	keywordMap = {}
+	sections = read_api_file(path, '//')
+	for key, doc in sections:
+		if key in ('keywords', 'types', 'directives'):
+			items = doc.split()
+			if key == 'directives':
+				directives = []
+				keywords = keywordMap['keywords']
+				for item in items:
+					if item[0] == '#':
+						directives.append(item[1:])
+					else:
+						keywords.append(item)
+				items = directives
+			keywordMap[key] = items
+
+	RemoveDuplicateKeyword(keywordMap, [
+		'types',
+		'keywords',
+	])
+	return [
+		('keywords', keywordMap['keywords'], KeywordAttr.MakeLower),
+		('type keyword', keywordMap['types'], KeywordAttr.MakeLower),
+		('preprocessor', keywordMap['directives'], KeywordAttr.NoLexer | KeywordAttr.NoAutoComp | KeywordAttr.Special),
 	]
 
 def parse_powershell_api_file(path):

@@ -556,7 +556,7 @@ LSTATUS Registry_DeleteTree(HKEY hKey, LPCWSTR lpSubKey) noexcept;
 #endif
 
 inline bool KeyboardIsKeyDown(int key) noexcept {
-	return GetKeyState(key) < 0;
+	return ::GetKeyState(key) & 0x8000;
 }
 
 #define WaitableTimer_IdleTaskTimeSlot		100
@@ -627,14 +627,19 @@ void SetDlgPos(HWND hDlg, int xDlg, int yDlg) noexcept;
 // bit [16, 19]
 #define RESIZE_MOVE_NONE	0
 #define RESIZE_MOVE_X		1
-#define RESIZE_MOVE_Y		2
-#define RESIZE_MOVE_XY		3
+#define RESIZE_MOVE_Y		(1 << 1)
+#define RESIZE_MOVE_Y1		(2 << 1)
+#define RESIZE_MOVE_XY		(RESIZE_MOVE_X | RESIZE_MOVE_Y)
 #define RESIZE_MOVE_MASK	7
 // bit [20, 23]
 #define RESIZE_SIZE_NONE	0
 #define RESIZE_SIZE_X		1
-#define RESIZE_SIZE_Y		2
-#define RESIZE_SIZE_XY		3
+#define RESIZE_SIZE_Y		(1 << 1)
+#define RESIZE_SIZE_Y1		(2 << 1)
+#define RESIZE_SIZE_Y2		(3 << 1)
+#define RESIZE_SIZE_XY		(RESIZE_SIZE_X | RESIZE_SIZE_Y)
+#define RESIZE_SIZE_XY1		(RESIZE_SIZE_X | RESIZE_SIZE_Y1)
+#define RESIZE_SIZE_XY2		(RESIZE_SIZE_X | RESIZE_SIZE_Y2)
 #define RESIZE_SIZE_MASK	7
 // bit [24, ]
 #define RESIZE_INVALIDATE_RECT		(1 << 24)	// static label
@@ -642,12 +647,15 @@ void SetDlgPos(HWND hDlg, int xDlg, int yDlg) noexcept;
 
 #define DeferCtlMoveX(id)	((id) | (RESIZE_MOVE_X << 16))
 #define DeferCtlMoveY(id)	((id) | (RESIZE_MOVE_Y << 16))
+#define DeferCtlMoveY1(id)	((id) | (RESIZE_MOVE_Y1 << 16))
 #define DeferCtlMove(id)	((id) | (RESIZE_MOVE_XY << 16))
 #define DeferCtlSizeX(id)	((id) | (RESIZE_SIZE_X << 20))
 #define DeferCtlSizeY(id)	((id) | (RESIZE_SIZE_Y << 20))
 #define DeferCtlSize(id)	((id) | (RESIZE_SIZE_XY << 20))
+#define DeferCtlSizeXY1(id)	((id) | (RESIZE_SIZE_XY1 << 20))
 #define DeferCtlEx(id, move, size)	((id) | ((move) << 16) | ((size) << 20))
 #define DeferCtlMoveYSizeX(id)	DeferCtlEx((id), RESIZE_MOVE_Y, RESIZE_SIZE_X)
+#define DeferCtlMoveY1SizeXY2(id)	DeferCtlEx((id), RESIZE_MOVE_Y1, RESIZE_SIZE_XY2)
 
 void ResizeDlg_InitEx(HWND hwnd, int *cxFrame, int *cyFrame, const DWORD *controlDefinition, DWORD controlCount) noexcept;
 inline void ResizeDlg_Init(HWND hwnd, int *cxFrame, int *cyFrame, const DWORD *controlDefinition, DWORD controlCount) noexcept {
@@ -661,10 +669,6 @@ inline void ResizeDlg_InitY(HWND hwnd, int *cyFrame, const DWORD *controlDefinit
 }
 inline void ResizeDlg_InitY2(HWND hwnd, int *cxFrame, int *cyFrame, const DWORD *controlDefinition, DWORD controlCount, UINT percent) noexcept {
 	ResizeDlg_InitEx(hwnd, cxFrame, cyFrame, controlDefinition, controlCount | (percent << 16));
-}
-int ResizeDlg_CalcDeltaEx(HWND hwnd, int dy, int cy, DWORD nCtlId) noexcept;
-inline int ResizeDlg_CalcDeltaY2(HWND hwnd, int dy, int cy, int nCtlId1, int nCtlId2) noexcept {
-	return ResizeDlg_CalcDeltaEx(hwnd, dy, cy, nCtlId1 | (nCtlId2 << 16));
 }
 
 HDWP DeferCtlPos(HDWP hdwp, HWND hwndDlg, int nCtlId, int dx, int dy, UINT uFlags) noexcept;
@@ -723,8 +727,8 @@ inline void SendWMCommandOrBeep(HWND hwnd, UINT id) noexcept {
 	}
 }
 
-HMODULE LoadLocalizedResourceDLL(LANGID lang, LPCWSTR dllName) noexcept;
-constexpr bool IsChineseTraditionalSubLang(LANGID subLang) noexcept {
+HMODULE LoadLocalizedResourceDLL(UINT lang, LPCWSTR dllName) noexcept;
+constexpr bool IsChineseTraditionalSubLang(UINT subLang) noexcept {
 	return subLang == SUBLANG_CHINESE_TRADITIONAL
 		|| subLang == SUBLANG_CHINESE_HONGKONG
 		|| subLang == SUBLANG_CHINESE_MACAU;
@@ -847,7 +851,8 @@ struct MRUList {
 	void Empty(bool save, bool destroy = false) noexcept;
 	void Load() noexcept;
 	void Save() const noexcept;
-	void MergeSave(bool keep) noexcept;
+	void Reload() noexcept;
+	void MergeSave(bool keep, bool destroy) noexcept;
 	void AddToCombobox(HWND hwnd) const noexcept;
 };
 
